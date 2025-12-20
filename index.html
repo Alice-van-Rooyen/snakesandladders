@@ -1,11 +1,184 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Hello</title>
-  </head>
-  <body>
-    <h1>It works</h1>
-    <p>GitHub Pages is alive.</p>
-  </body>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Snakes Board</title>
+
+  <style>
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      height: 100vh;
+      font-family: system-ui, sans-serif;
+    }
+    canvas {
+      width: min(96vw, 96vh);
+      height: min(96vw, 96vh);
+      background: #eee;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="game"></canvas>
+
+  <script type="module">
+
+    // ===============================
+    // 1. BASIC CANVAS SETUP
+    // ===============================
+
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const board = new Image();
+    board.src = "assets/board.jpg";
+
+    let WORLD_W = 1000;
+    let WORLD_H = 1000;
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const cssSize = canvas.clientWidth;
+
+      canvas.width = cssSize * dpr;
+      canvas.height = cssSize * dpr;
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // ===============================
+    // 2. GRID POSITION (EDIT THESE)
+    // ===============================
+
+    const GRID = {
+      x0: 50,   // ← adjust these four numbers later
+      y0: 50,
+      x1: 950,
+      y1: 950
+    };
+
+    // ===============================
+    // 3. LOAD THE JSON
+    // ===============================
+
+    let squares = {};
+
+    async function loadSquares() {
+      const res = await fetch("data/squares.json");
+      squares = await res.json();
+    }
+
+    // ===============================
+    // 4. SQUARE → ROW/COLUMN
+    // ===============================
+
+    function squareToRowCol(n) {
+      const index = n - 1;
+      const rowFromBottom = Math.floor(index / 10);
+      const colInRow = index % 10;
+
+      const row = 9 - rowFromBottom;
+      const col = (rowFromBottom % 2 === 0)
+        ? colInRow
+        : 9 - colInRow;
+
+      return { row, col };
+    }
+
+    function cellRect(row, col) {
+      const w = (GRID.x1 - GRID.x0) / 10;
+      const h = (GRID.y1 - GRID.y0) / 10;
+
+      return {
+        x: GRID.x0 + col * w,
+        y: GRID.y0 + row * h,
+        w,
+        h
+      };
+    }
+
+    // ===============================
+    // 5. DRAW TEXT IN A SQUARE
+    // ===============================
+
+    function drawText(text, r) {
+      if (!text) return;
+
+      const padding = 6;
+      const maxWidth = r.w - padding * 2;
+      let fontSize = 14;
+
+      ctx.fillStyle = "#000";
+      ctx.textBaseline = "top";
+
+      while (fontSize > 8) {
+        ctx.font = fontSize + "px system-ui";
+        const words = text.split(" ");
+        let lines = [];
+        let line = "";
+
+        for (const word of words) {
+          const test = line + word + " ";
+          if (ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = word + " ";
+          } else {
+            line = test;
+          }
+        }
+        lines.push(line);
+
+        if (lines.length * fontSize <= r.h - padding * 2) {
+          lines.forEach((ln, i) => {
+            ctx.fillText(
+              ln,
+              r.x + padding,
+              r.y + padding + i * fontSize
+            );
+          });
+          return;
+        }
+        fontSize--;
+      }
+    }
+
+    // ===============================
+    // 6. MAIN DRAW FUNCTION
+    // ===============================
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.drawImage(board, 0, 0, WORLD_W, WORLD_H);
+
+      for (let n = 1; n <= 100; n++) {
+        const entry = squares[n];
+        if (!entry) continue;
+
+        const { row, col } = squareToRowCol(n);
+        const rect = cellRect(row, col);
+
+        drawText(entry.text, rect);
+      }
+    }
+
+    // ===============================
+    // 7. START EVERYTHING
+    // ===============================
+
+    async function start() {
+      resizeCanvas();
+      await loadSquares();
+      draw();
+    }
+
+    board.onload = start;
+    window.addEventListener("resize", resizeCanvas);
+
+  </script>
+</body>
 </html>
+
