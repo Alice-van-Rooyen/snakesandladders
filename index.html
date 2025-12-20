@@ -34,7 +34,7 @@
     const ctx = canvas.getContext("2d");
 
     const board = new Image();
-    board.src = "assets/board.jpg";
+    board.src = "assets/board.png";
 
     let WORLD_W = 1000;
     let WORLD_H = 1000;
@@ -54,10 +54,10 @@
     // ===============================
 
     const GRID = {
-      x0: 50,   // ← adjust these four numbers later
-      y0: 50,
-      x1: 950,
-      y1: 950
+      x0: 0,   // ← adjust these four numbers later
+      y0: 0,
+      x1: WORLD_W,
+      y1: WORLD_H
     };
 
     // ===============================
