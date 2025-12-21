@@ -49,11 +49,11 @@ canvas {
       if (!path) return null;
       if (imageCache.has(path)) return imageCache.get(path);
 
-    const img = new Image();
-    img.src = path;
-    imageCache.set(path, img);
-    return img;
-  }
+      const img = new Image();
+      img.src = path;
+      imageCache.set(path, img);
+      return img;
+    }
 
     
     window.addEventListener("keydown", (e) => {
@@ -70,8 +70,8 @@ canvas {
       const dpr = window.devicePixelRatio || 1;
       const cssSize = canvas.clientWidth;
 
-      canvas.width = cssSize * dpr;
-      canvas.height = cssSize * dpr;
+      canvas.width = Math.round(cssSize * dpr);
+      canvas.height = Math.round(cssSize * dpr);
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
