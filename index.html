@@ -23,7 +23,6 @@ canvas {
   box-shadow: 0 8px 30px rgba(0,0,0,0.15);  
 }
 
-
   </style>
 </head>
 
@@ -41,6 +40,15 @@ canvas {
 
     const board = new Image();
     board.src = "assets/board.png";
+
+    let showGrid = false;
+
+    window.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "g") {
+    showGrid = !showGrid;
+    draw();
+    }
+    });
 
     let WORLD_W = 1000;
     let WORLD_H = 1000;
@@ -98,7 +106,7 @@ canvas {
 
 
     // ===============================
-    // 5. DRAW TEXT IN A SQUARE
+    // 4. DRAW TEXT IN A SQUARE
     // ===============================
 
     function drawText(text, r) {
@@ -143,13 +151,14 @@ canvas {
     }
 
     // ===============================
-    // 6. MAIN DRAW FUNCTION
+    // 5. MAIN DRAW FUNCTION
     // ===============================
 
     function draw() {
       const S = canvas.clientWidth;          // CSS pixels (the visible size)
       ctx.clearRect(0, 0, S, S);
       ctx.drawImage(board, 0, 0, S, S);       // draw board to fit canvas
+      if (showGrid) drawGridOverlay();
 
 
       for (let n = 1; n <= 100; n++) {
@@ -162,6 +171,37 @@ canvas {
         drawText(entry.text, rect);
       }
     }
+
+    // ===============================
+    // 6. DRAW GRID FUNCTION
+    // ===============================
+
+    function drawGridOverlay() {
+    const S = canvas.clientWidth;
+    const cell = S / 10;
+
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+
+    // vertical lines
+    for (let i = 0; i <= 10; i++) {
+      const x = i * cell;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, S);
+      ctx.stroke();
+    }
+
+    // horizontal lines
+    for (let i = 0; i <= 10; i++) {
+      const y = i * cell;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(S, y);
+      ctx.stroke();
+    }
+    }
+
 
     // ===============================
     // 7. START EVERYTHING
