@@ -43,6 +43,19 @@ canvas {
 
     let showGrid = false;
 
+    const imageCache = new Map();
+
+    function getImage(path) {
+      if (!path) return null;
+      if (imageCache.has(path)) return imageCache.get(path);
+
+    const img = new Image();
+    img.src = path;
+    imageCache.set(path, img);
+    return img;
+  }
+
+    
     window.addEventListener("keydown", (e) => {
     if (e.key.toLowerCase() === "g") {
     showGrid = !showGrid;
@@ -67,12 +80,37 @@ canvas {
     // 2. LOAD THE JSON
     // ===============================
 
-    let squares = {};
+    let squareInfo = {};      // per-square text/icon
+    let tileBySquare = {};    // per-square tile image path
+    let tilePaths = {};       // name -> path (from JSON)
 
     async function loadSquares() {
       const res = await fetch("data/squares.json?v=" + Date.now());
-      squares = await res.json();
+      const data = await res.json();
+
+    tilePaths = data.tiles;
+    squareInfo = data.squares;
+
+    // Start everything as the default colour:
+      const defaultName = data.defaultTile;
+      const defaultPath = tilePaths[defaultName];
+
+    tileBySquare = {};
+      for (let n = 1; n <= 100; n++) {
+      tileBySquare[n] = defaultPath;
+  }
+
+    // Override with tileSets:
+      const sets = data.tileSets || {};
+        for (const colourName of Object.keys(sets)) {
+        const path = tilePaths[colourName];
+        const list = sets[colourName] || [];
+        for (const n of list) {
+          tileBySquare[n] = path;
     }
+  }
+}
+
 
     // ===============================
     // 3. SQUARE → ROW/COLUMN
@@ -155,22 +193,27 @@ canvas {
     // ===============================
 
     function draw() {
-      const S = canvas.clientWidth;          // CSS pixels (the visible size)
+      const S = canvas.clientWidth; // CSS pixels (visible size)
       ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(board, 0, 0, S, S);       // draw board to fit canvas
-      
-      for (let n = 1; n <= 100; n++) {
-        const entry = squares[n];
-        if (!entry) continue;
+      ctx.drawImage(board, 0, 0, S, S);
 
+    // Draw tiles + text for every square
+      for (let n = 1; n <= 100; n++) {
+        const entry = squareInfo[n]; // may be undefined if missing
         const { row, col } = squareToRowCol(n);
         const rect = cellRect(row, col);
 
-        drawText(entry.text, rect);
+    // 1) tile background (always present via default)
+      drawTile(tileBySquare[n], rect);
 
-        if (showGrid) drawGridOverlay();
-      }
-    }
+    // 2) text (optional)
+      if (entry) drawText(entry.text, rect);
+  }
+
+    // 3) debug grid on top
+      if (showGrid) drawGridOverlay();
+}
+
 
     // ===============================
     // 6. DRAW GRID FUNCTION
@@ -202,9 +245,20 @@ canvas {
     }
     }
 
+    // ===============================
+    // 7. DRAW TILES
+    // ===============================
+
+    function drawTile(tilePath, r) {
+      const img = getImage(tilePath);
+      if (!img || !img.complete) return;
+
+    ctx.drawImage(img, r.x, r.y, r.w, r.h);
+    }
+
 
     // ===============================
-    // 7. START EVERYTHING
+    // 8. START EVERYTHING
     // ===============================
 
     async function start() {
@@ -214,7 +268,11 @@ canvas {
     }
 
     board.onload = start;
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+      draw();
+    });
+
 
   </script>
 </body>
