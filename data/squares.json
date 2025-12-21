@@ -11,15 +11,24 @@
     "orange": "assets/tiles/orange.png",
     "purple": "assets/tiles/purple.png",
     "red":    "assets/tiles/red.png",
-    "teal":   "assets/tiles/teal.png",
+    "aqua":   "assets/tiles/aqua.png",
     "grey":   "assets/tiles/grey.png",
-    "brown":  "assets/tiles/brown.png"
+    "gold":  "assets/tiles/gold.png",
+    "peach": "assets/tiles/peach.png"
   },
 
   "tileSets": {
-    "pink":   [2, 9, 21, 28, 43],
-    "yellow": [7, 12, 25],
-    "green":  [1, 100]
+    "pink":   [3, 9, 20, 34, 65, 70, 84, 94, 99],
+    "yellow": [2, 11, 45, 60, 63, 76, 81, 88, 97],
+    "green":  [4, 13, 39, 41, 50, 68, 70, 89, 98],
+    "orange": [15, 22, 44, 55, 62, 75, 91],
+    "purple": [26, 47, 61, 69, 80, 86],
+    "red":    [18, 29, 48, 74, 95],
+    "aqua":   [6,37, 53, 87, 96 ],
+    "grey":   [3, 24, 49],
+    "gold":   [16, 31, 54, 83],
+    "peach":  [14, 32, 52, 73, 43, 79]
+      ],
   },
 
   "squares": {
