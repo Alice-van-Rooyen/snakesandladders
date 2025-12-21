@@ -150,7 +150,7 @@ canvas {
     function drawText(text, r) {
   if (!text) return;
 
-  const padding = 4; // smaller padding helps long squares fit
+  const padding = 6; // your preferred padding
   const maxWidth = r.w - padding * 2;
   let fontSize = 14;
 
@@ -161,20 +161,32 @@ canvas {
   while (fontSize >= 6) {
     ctx.font = fontSize + "px system-ui";
 
-    const words = text.split(" ");
+    const paragraphs = text.split("\n");
     const lines = [];
-    let line = "";
 
-    for (const word of words) {
-      const test = line ? (line + " " + word) : word;
-      if (ctx.measureText(test).width > maxWidth) {
-        if (line) lines.push(line);
-        line = word;
-      } else {
-        line = test;
+    for (const para of paragraphs) {
+      const words = para.split(" ");
+      let line = "";
+
+      for (const word of words) {
+        const test = line ? line + " " + word : word;
+        if (ctx.measureText(test).width > maxWidth) {
+          if (line) lines.push(line);
+          line = word;
+        } else {
+          line = test;
+        }
       }
+      if (line) lines.push(line);
+
+      // blank line between paragraphs
+      lines.push("");
     }
-    if (line) lines.push(line);
+
+    // remove last extra blank line
+    if (lines[lines.length - 1] === "") {
+      lines.pop();
+    }
 
     const lineHeight = Math.round(fontSize * 1.1);
     const blockHeight = lines.length * lineHeight;
@@ -184,7 +196,9 @@ canvas {
       const centerX = r.x + r.w / 2;
 
       lines.forEach((ln, i) => {
-        ctx.fillText(ln, centerX, startY + i * lineHeight);
+        if (ln !== "") {
+          ctx.fillText(ln, centerX, startY + i * lineHeight);
+        }
       });
       return;
     }
@@ -192,7 +206,7 @@ canvas {
     fontSize--;
   }
 
-  // If nothing fits even at 6px, draw a tiny hint rather than nothing
+  // fallback: always show something
   ctx.font = "6px system-ui";
   ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
 }
