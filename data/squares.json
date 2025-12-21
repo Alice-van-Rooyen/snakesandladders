@@ -1,9 +1,28 @@
 {
-  "_meta": {
-    "version": 1,
-    "notes": "Squares 1–100. Edit text and icon. Use null for no icon. Empty text is allowed."
+  "_meta": { "version": 2 },
+
+  "defaultTile": "blue",
+
+  "tiles": {
+    "blue":   "assets/tiles/blue.png",
+    "pink":   "assets/tiles/pink.png",
+    "yellow": "assets/tiles/yellow.png",
+    "green":  "assets/tiles/green.png",
+    "orange": "assets/tiles/orange.png",
+    "purple": "assets/tiles/purple.png",
+    "red":    "assets/tiles/red.png",
+    "teal":   "assets/tiles/teal.png",
+    "grey":   "assets/tiles/grey.png",
+    "brown":  "assets/tiles/brown.png"
   },
 
+  "tileSets": {
+    "pink":   [2, 9, 21, 28, 43],
+    "yellow": [7, 12, 25],
+    "green":  [1, 100]
+  },
+
+  "squares": {
   "1":   { "text": "You are discharged. Good luck!", "icon": null },
   "2":   { "text": "Being upright smakcs of effort, you opt to be horizontal - a solid first move.", "icon": null },
   "3":   { "text": "You think you'll have just one more day in bed before you start being production - adorable!", "icon": null },
@@ -113,4 +132,5 @@
   "98":  { "text": "An acquaintance wants to visit. It's easier to unfriend them than tidy the house.", "icon": null },
   "99":  { "text": "You compare weight loss wattles with a colleague on Ozempic. You're winning.", "icon": null },
   "100": { "text": "'Early convalescence' is over. Advance to new levels of existential bullshit. Congratulations?", "icon": null }
+}
 }
