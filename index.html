@@ -153,9 +153,10 @@ canvas {
     // ===============================
 
     function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const S = canvas.clientWidth;          // CSS pixels (the visible size)
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(board, 0, 0, S, S);       // draw board to fit canvas
 
-      ctx.drawImage(board, 0, 0, WORLD_W, WORLD_H);
 
       for (let n = 1; n <= 100; n++) {
         const entry = squares[n];
