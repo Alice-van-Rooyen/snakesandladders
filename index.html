@@ -158,9 +158,7 @@ canvas {
       const S = canvas.clientWidth;          // CSS pixels (the visible size)
       ctx.clearRect(0, 0, S, S);
       ctx.drawImage(board, 0, 0, S, S);       // draw board to fit canvas
-      if (showGrid) drawGridOverlay();
-
-
+      
       for (let n = 1; n <= 100; n++) {
         const entry = squares[n];
         if (!entry) continue;
@@ -169,6 +167,8 @@ canvas {
         const rect = cellRect(row, col);
 
         drawText(entry.text, rect);
+
+        if (showGrid) drawGridOverlay();
       }
     }
 
