@@ -53,18 +53,7 @@ canvas {
     }
 
     // ===============================
-    // 2. GRID POSITION (EDIT THESE)
-    // ===============================
-
-    const GRID = {
-      x0: 0,   // ← adjust these four numbers later
-      y0: 0,
-      x1: WORLD_W,
-      y1: WORLD_H
-    };
-
-    // ===============================
-    // 3. LOAD THE JSON
+    // 2. LOAD THE JSON
     // ===============================
 
     let squares = {};
@@ -75,7 +64,7 @@ canvas {
     }
 
     // ===============================
-    // 4. SQUARE → ROW/COLUMN
+    // 3. SQUARE → ROW/COLUMN
     // ===============================
 
     function squareToRowCol(n) {
@@ -92,12 +81,17 @@ canvas {
     }
 
     function cellRect(row, col) {
-    const S = canvas.clientWidth;
-    const w = S / 10;
-    const h = S / 10;
+      const S = canvas.clientWidth;
+      const cell = S / 10;
 
-    return { x: col * w, y: row * h, w, h };
+      return {
+        x: col * cell,
+        y: row * cell,
+        w: cell,
+        h: cell
+      };
     }
+
 
 
     // ===============================
