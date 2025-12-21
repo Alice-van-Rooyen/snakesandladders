@@ -253,8 +253,10 @@ canvas {
       const img = getImage(tilePath);
       if (!img || !img.complete) return;
 
-    ctx.drawImage(img, r.x, r.y, r.w, r.h);
+      const pad = Math.max(2, r.w * 0.08); // ~8% gutter; tweak 0.06–0.12
+      ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
     }
+
 
 
     // ===============================
