@@ -178,86 +178,90 @@
     // ===============================
 
     function drawText(text, r) {
-      if (!text) return;
+  if (!text) return;
 
-      const padding = 6;
-      const paragraphGap = 0.5; // 0.3 - 0.6 feels good
-      const maxWidth = r.w - padding * 2;
+  const padding = 6;
+  const paragraphGap = 0.5; // 0.3–0.6 feels good
+  const maxWidth = r.w - padding * 2;
 
-      let fontSize = 12;     // start size
-      const minFont = 6;     // minimum size
+  let fontSize = 12;
+  const minFont = 6;
 
-      ctx.fillStyle = "#000";
-      ctx.textBaseline = "top";
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "top";
 
-      while (fontSize >= minFont) {
-        // For wrapping we measure in normal font
-        ctx.font = `${fontSize}px system-ui`;
+  while (fontSize >= minFont) {
+    // Wrap measurements use normal font
+    ctx.font = `${fontSize}px system-ui`;
 
-        // Build wrapped lines, respecting manual \n line breaks
-        const paragraphs = text.split("\n");
-        const lines = [];
+    // Build wrapped lines, respecting manual \n breaks
+    const paragraphs = text.split("\n");
+    const lines = [];
 
-        for (const para of paragraphs) {
-          const words = para.split(" ");
-          let line = "";
+    for (const para of paragraphs) {
+      const words = para.split(" ");
+      let line = "";
 
-          for (const word of words) {
-            const test = line ? `${line} ${word}` : word;
-            if (ctx.measureText(test).width > maxWidth) {
-              if (line) lines.push(line);
-              line = word;
-            } else {
-              line = test;
-            }
-          }
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word;
+        if (ctx.measureText(test).width > maxWidth) {
           if (line) lines.push(line);
-
-          // add a blank line between paragraphs
-          lines.push({type:"gap"});
+          line = word;
+        } else {
+          line = test;
         }
-        if (lines.length && lines[lines.length - 1] === "") lines.pop();
+      }
+      if (line) lines.push(line);
 
-        const lineHeight = Math.round(fontSize * 1.1);
-        const blockHeight = lines.reduce((h, item) => {
-          return h + (item?.type === "gap" ? lineHeight * paragraphGap : lineHeight);
-        }, 0);
+      // add a small paragraph gap marker
+      lines.push({ type: "gap" });
+    }
 
+    // Remove the final gap marker
+    if (lines.length && lines[lines.length - 1]?.type === "gap") lines.pop();
 
-        if (blockHeight <= r.h - padding * 2) {
-          const startY = r.y + (r.h - blockHeight) / 2;
-          const centerX = r.x + r.w / 2;
+    const lineHeight = Math.round(fontSize * 1.1);
 
-        let cursorY = startY;
+    const blockHeight = lines.reduce((h, item) => {
+      return h + (item?.type === "gap" ? lineHeight * paragraphGap : lineHeight);
+    }, 0);
 
-        lines.forEach(item => {
-          if (item?.type === "gap") {
-            cursorY += lineHeight * paragraphGap;
-            return;
-          }
+    if (blockHeight <= r.h - padding * 2) {
+      const startY = r.y + (r.h - blockHeight) / 2;
+      const centerX = r.x + r.w / 2;
 
-          const ln = item;
-          const y = cursorY;
+      let cursorY = startY;
 
-          const parts = parseStyledLine(ln);
+      lines.forEach(item => {
+        if (item?.type === "gap") {
+          cursorY += lineHeight * paragraphGap;
+          return;
+        }
 
-          let totalWidth = 0;
-          parts.forEach(p => {
-            ctx.font =
-              p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-              p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                             `${fontSize}px system-ui`;
-            totalWidth += ctx.measureText(p.text).width;
-          });
+        const ln = item;
+        const y = cursorY;
 
-          let x = centerX - totalWidth / 2;
-          ctx.textAlign = "left";
+        const parts = parseStyledLine(ln);
 
-          parts.forEach(p => {
-            ctx.font =
-              p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-              p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                             `${fontSize}px system-ui`;
+        // Measure total width across styled segments
+        let totalWidth = 0;
+        parts.forEach(p => {
+          ctx.font =
+            p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+            p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                                   `${fontSize}px system-ui`;
+          totalWidth += ctx.measureText(p.text).width;
+        });
+
+        // Draw left-to-right from left anchor, centered overall
+        let x = centerX - totalWidth / 2;
+        ctx.textAlign = "left";
+
+        parts.forEach(p => {
+          ctx.font =
+            p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+            p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                                   `${fontSize}px system-ui`;
 
           ctx.fillText(p.text, x, y);
           x += ctx.measureText(p.text).width;
@@ -267,50 +271,22 @@
         cursorY += lineHeight;
       });
 
-
-            const parts = parseStyledLine(ln);
-
-            // Measure total width across styled segments
-            let totalWidth = 0;
-            parts.forEach(p => {
-              ctx.font =
-                p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-                p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                                       `${fontSize}px system-ui`;
-              totalWidth += ctx.measureText(p.text).width;
-            });
-
-            // Draw from a left anchor, but centered overall
-            let x = centerX - totalWidth / 2;
-            ctx.textAlign = "left";
-
-            parts.forEach(p => {
-              ctx.font =
-                p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-                p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                                       `${fontSize}px system-ui`;
-              ctx.fillText(p.text, x, y);
-              x += ctx.measureText(p.text).width;
-            });
-
-            ctx.textAlign = "center";
-          });
-
-          return;
-        }
-
-        fontSize--;
-      }
-
-      // Fallback: always show something
-      ctx.font = `${minFont}px system-ui`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
-
-      // restore
-      ctx.textBaseline = "top";
+      return;
     }
+
+    fontSize--;
+  }
+
+  // Fallback: always show something
+  ctx.font = `${minFont}px system-ui`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
+
+  // restore
+  ctx.textBaseline = "top";
+}
+
 
     // ===============================
     // 6. DRAW GRID (DEBUG)
