@@ -148,53 +148,55 @@ canvas {
     // ===============================
 
     function drawText(text, r) {
-      if (!text) return;
+  if (!text) return;
 
-      const padding = 6;
-      const maxWidth = r.w - padding * 2;
-      let fontSize = 14;
+  const padding = 4; // smaller padding helps long squares fit
+  const maxWidth = r.w - padding * 2;
+  let fontSize = 14;
 
-      ctx.fillStyle = "#000";
-      ctx.textBaseline = "top";
-      ctx.textAlign = "center";
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
 
-      while (fontSize > 8) {
-        ctx.font = fontSize + "px system-ui";
+  while (fontSize >= 6) {
+    ctx.font = fontSize + "px system-ui";
 
-        const words = text.split(" ");
-        let lines = [];
-        let line = "";
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
 
-      for (const word of words) {
-        const test = line + word + " ";
-        if (ctx.measureText(test).width > maxWidth) {
-          lines.push(line.trim());
-          line = word + " ";
-        } else {
-          line = test;
-        }
+    for (const word of words) {
+      const test = line ? (line + " " + word) : word;
+      if (ctx.measureText(test).width > maxWidth) {
+        if (line) lines.push(line);
+        line = word;
+      } else {
+        line = test;
       }
-      lines.push(line.trim());
+    }
+    if (line) lines.push(line);
 
-      const blockHeight = lines.length * fontSize;
+    const lineHeight = Math.round(fontSize * 1.1);
+    const blockHeight = lines.length * lineHeight;
 
-      if (blockHeight <= r.h - padding * 2) {
-        const startY = r.y + (r.h - blockHeight) / 2;
-        const centerX = r.x + r.w / 2;
+    if (blockHeight <= r.h - padding * 2) {
+      const startY = r.y + (r.h - blockHeight) / 2;
+      const centerX = r.x + r.w / 2;
 
-        lines.forEach((ln, i) => {
-          ctx.fillText(
-            ln,
-            centerX,
-            startY + i * fontSize
-          );
-        });
-        return;
-      }
+      lines.forEach((ln, i) => {
+        ctx.fillText(ln, centerX, startY + i * lineHeight);
+      });
+      return;
+    }
 
     fontSize--;
   }
+
+  // If nothing fits even at 6px, draw a tiny hint rather than nothing
+  ctx.font = "6px system-ui";
+  ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
 }
+
 
 
     // ===============================
