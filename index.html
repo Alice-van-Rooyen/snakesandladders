@@ -239,15 +239,13 @@ canvas {
       const startY = r.y + (r.h - blockHeight) / 2;
       const centerX = r.x + r.w / 2;
 
-     lines.forEach((ln, i) => {
+lines.forEach((ln, i) => {
   const y = startY + i * lineHeight;
 
-  // If it's an intentional blank line, don't draw anything (but keep the vertical space)
-  if (ln === "") return;
+  if (ln === "") return; // intentional blank line
 
   const parts = parseStyledLine(ln);
 
-  // Measure full line width
   let totalWidth = 0;
   parts.forEach(p => {
     ctx.font =
@@ -260,7 +258,6 @@ canvas {
   const centerX = r.x + r.w / 2;
   let x = centerX - totalWidth / 2;
 
-  // IMPORTANT: draw segments from a left anchor
   ctx.textAlign = "left";
 
   parts.forEach(p => {
@@ -273,34 +270,9 @@ canvas {
     x += ctx.measureText(p.text).width;
   });
 
-  // Put it back so other code stays consistent
   ctx.textAlign = "center";
 });
 
-
-  let x = centerX - totalWidth / 2;
-  const y = startY + i * lineHeight;
-
-  parts.forEach(p => {
-    ctx.font =
-      p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-      p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                             `${fontSize}px system-ui`;
-
-    ctx.fillText(p.text, x, y);
-    x += ctx.measureText(p.text).width;
-  });
-
-      return;
-    }
-
-    fontSize--;
-  }
-
-  // fallback: always show something
-  ctx.font = "6px system-ui";
-  ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
-}
 
 
 
