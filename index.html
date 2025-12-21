@@ -181,6 +181,7 @@
       if (!text) return;
 
       const padding = 6;
+      const paragraphGap = 0.5; // 0.3 - 0.6 feels good
       const maxWidth = r.w - padding * 2;
 
       let fontSize = 12;     // start size
@@ -213,22 +214,59 @@
           if (line) lines.push(line);
 
           // add a blank line between paragraphs
-          lines.push("");
+          lines.push({type:"gap"});
         }
         if (lines.length && lines[lines.length - 1] === "") lines.pop();
 
         const lineHeight = Math.round(fontSize * 1.1);
-        const blockHeight = lines.length * lineHeight;
+        const blockHeight = lines.reduce((h, item) => {
+          return h + (item?.type === "gap" ? lineHeight * paragraphGap : lineHeight);
+        }, 0);
+
 
         if (blockHeight <= r.h - padding * 2) {
           const startY = r.y + (r.h - blockHeight) / 2;
           const centerX = r.x + r.w / 2;
 
-          lines.forEach((ln, i) => {
-            const y = startY + i * lineHeight;
+        let cursorY = startY;
 
-            // blank line: keep vertical space, draw nothing
-            if (ln === "") return;
+        lines.forEach(item => {
+          if (item?.type === "gap") {
+            cursorY += lineHeight * paragraphGap;
+            return;
+          }
+
+          const ln = item;
+          const y = cursorY;
+
+          const parts = parseStyledLine(ln);
+
+          let totalWidth = 0;
+          parts.forEach(p => {
+            ctx.font =
+              p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+              p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                             `${fontSize}px system-ui`;
+            totalWidth += ctx.measureText(p.text).width;
+          });
+
+          let x = centerX - totalWidth / 2;
+          ctx.textAlign = "left";
+
+          parts.forEach(p => {
+            ctx.font =
+              p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+              p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                             `${fontSize}px system-ui`;
+
+          ctx.fillText(p.text, x, y);
+          x += ctx.measureText(p.text).width;
+        });
+
+        ctx.textAlign = "center";
+        cursorY += lineHeight;
+      });
+
 
             const parts = parseStyledLine(ln);
 
