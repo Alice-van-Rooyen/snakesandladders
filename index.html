@@ -92,16 +92,13 @@ canvas {
     }
 
     function cellRect(row, col) {
-      const w = (GRID.x1 - GRID.x0) / 10;
-      const h = (GRID.y1 - GRID.y0) / 10;
+    const S = canvas.clientWidth;
+    const w = S / 10;
+    const h = S / 10;
 
-      return {
-        x: GRID.x0 + col * w,
-        y: GRID.y0 + row * h,
-        w,
-        h
-      };
+    return { x: col * w, y: row * h, w, h };
     }
+
 
     // ===============================
     // 5. DRAW TEXT IN A SQUARE
