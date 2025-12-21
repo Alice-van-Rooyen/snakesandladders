@@ -4,7 +4,7 @@
     "notes": "Squares 1–100. Edit text and icon. Use null for no icon. Empty text is allowed."
   },
 
-  "1":   { "text": "START: You are discharged. Good luck!", "icon": null },
+  "1":   { "text": "You are discharged. Good luck!", "icon": null },
   "2":   { "text": "Being upright smakcs of effort, you opt to be horizontal - a solid first move.", "icon": null },
   "3":   { "text": "You think you'll have just one more day in bed before you start being production - adorable!", "icon": null },
   "4":   { "text": "A friend reminds you that groceries can be delivered. You order them. You will not eat them.", "icon": null },
