@@ -144,7 +144,51 @@ canvas {
 
 
     // ===============================
-    // 4. DRAW TEXT IN A SQUARE
+    // 4. STYLE TEXT 
+    // ===============================
+
+    function parseStyledLine(line) {
+  const parts = [];
+  let i = 0;
+
+  while (i < line.length) {
+    // bold **text**
+    if (line.startsWith("**", i)) {
+      const end = line.indexOf("**", i + 2);
+      if (end !== -1) {
+        parts.push({ text: line.slice(i + 2, end), style: "bold" });
+        i = end + 2;
+        continue;
+      }
+    }
+
+    // italic *text*
+    if (line.startsWith("*", i)) {
+      const end = line.indexOf("*", i + 1);
+      if (end !== -1) {
+        parts.push({ text: line.slice(i + 1, end), style: "italic" });
+        i = end + 1;
+        continue;
+      }
+    }
+
+    // normal text
+    let next = line.length;
+    const b = line.indexOf("**", i);
+    const it = line.indexOf("*", i);
+    if (b !== -1) next = Math.min(next, b);
+    if (it !== -1) next = Math.min(next, it);
+
+    parts.push({ text: line.slice(i, next), style: "normal" });
+    i = next;
+  }
+
+  return parts;
+}
+
+
+    // ===============================
+    // 5. DRAW TEXT IN A SQUARE
     // ===============================
 
     function drawText(text, r) {
@@ -195,11 +239,33 @@ canvas {
       const startY = r.y + (r.h - blockHeight) / 2;
       const centerX = r.x + r.w / 2;
 
-      lines.forEach((ln, i) => {
-        if (ln !== "") {
-          ctx.fillText(ln, centerX, startY + i * lineHeight);
-        }
-      });
+     lines.forEach((ln, i) => {
+  const parts = parseStyledLine(ln);
+
+  // measure full line width
+  let totalWidth = 0;
+  parts.forEach(p => {
+    ctx.font =
+      p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+      p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                             `${fontSize}px system-ui`;
+    totalWidth += ctx.measureText(p.text).width;
+  });
+
+  let x = centerX - totalWidth / 2;
+  const y = startY + i * lineHeight;
+
+  parts.forEach(p => {
+    ctx.font =
+      p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+      p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                             `${fontSize}px system-ui`;
+
+    ctx.fillText(p.text, x, y);
+    x += ctx.measureText(p.text).width;
+  });
+});
+
       return;
     }
 
