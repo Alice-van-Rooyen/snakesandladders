@@ -6,23 +6,22 @@
   <title>Snakes Board</title>
 
   <style>
-body {
-  margin: 0;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #e6e6e6; /* light grey */
-}
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #e6e6e6; /* light grey */
+    }
 
-canvas {
-  width: 90vmin;
-  height: 90vmin;
-  background: #eee;
-  border: 5px solid #000;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.15);  
-}
-
+    canvas {
+      width: 90vmin;
+      height: 90vmin;
+      background: #eee;
+      border: 5px solid #000;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    }
   </style>
 </head>
 
@@ -30,7 +29,6 @@ canvas {
   <canvas id="game"></canvas>
 
   <script type="module">
-
     // ===============================
     // 1. BASIC CANVAS SETUP
     // ===============================
@@ -44,7 +42,6 @@ canvas {
     let showGrid = false;
 
     const imageCache = new Map();
-
     function getImage(path) {
       if (!path) return null;
       if (imageCache.has(path)) return imageCache.get(path);
@@ -55,16 +52,12 @@ canvas {
       return img;
     }
 
-    
     window.addEventListener("keydown", (e) => {
-    if (e.key.toLowerCase() === "g") {
-    showGrid = !showGrid;
-    draw();
-    }
+      if (e.key.toLowerCase() === "g") {
+        showGrid = !showGrid;
+        draw();
+      }
     });
-
-    let WORLD_W = 1000;
-    let WORLD_H = 1000;
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -73,6 +66,7 @@ canvas {
       canvas.width = Math.round(cssSize * dpr);
       canvas.height = Math.round(cssSize * dpr);
 
+      // Draw in CSS pixels (0..cssSize), not device pixels
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
@@ -88,29 +82,28 @@ canvas {
       const res = await fetch("data/squares.json?v=" + Date.now());
       const data = await res.json();
 
-    tilePaths = data.tiles;
-    squareInfo = data.squares;
+      tilePaths = data.tiles || {};
+      squareInfo = data.squares || {};
 
-    // Start everything as the default colour:
       const defaultName = data.defaultTile;
       const defaultPath = tilePaths[defaultName];
 
-    tileBySquare = {};
+      // Default everything
+      tileBySquare = {};
       for (let n = 1; n <= 100; n++) {
-      tileBySquare[n] = defaultPath;
-  }
+        tileBySquare[n] = defaultPath;
+      }
 
-    // Override with tileSets:
+      // Override sets
       const sets = data.tileSets || {};
-        for (const colourName of Object.keys(sets)) {
+      for (const colourName of Object.keys(sets)) {
         const path = tilePaths[colourName];
         const list = sets[colourName] || [];
         for (const n of list) {
           tileBySquare[n] = path;
+        }
+      }
     }
-  }
-}
-
 
     // ===============================
     // 3. SQUARE → ROW/COLUMN
@@ -122,9 +115,7 @@ canvas {
       const colInRow = index % 10;
 
       const row = 9 - rowFromBottom;
-      const col = (rowFromBottom % 2 === 0)
-        ? colInRow
-        : 9 - colInRow;
+      const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
 
       return { row, col };
     }
@@ -133,204 +124,182 @@ canvas {
       const S = canvas.clientWidth;
       const cell = S / 10;
 
-      return {
-        x: col * cell,
-        y: row * cell,
-        w: cell,
-        h: cell
-      };
+      return { x: col * cell, y: row * cell, w: cell, h: cell };
     }
 
-
-
     // ===============================
-    // 4. STYLE TEXT 
+    // 4. INLINE TEXT STYLES
     // ===============================
 
+    // Supports:
+    // **bold**
+    // *italic*
     function parseStyledLine(line) {
-  const parts = [];
-  let i = 0;
+      const parts = [];
+      let i = 0;
 
-  while (i < line.length) {
-    // bold **text**
-    if (line.startsWith("**", i)) {
-      const end = line.indexOf("**", i + 2);
-      if (end !== -1) {
-        parts.push({ text: line.slice(i + 2, end), style: "bold" });
-        i = end + 2;
-        continue;
+      while (i < line.length) {
+        // bold **text**
+        if (line.startsWith("**", i)) {
+          const end = line.indexOf("**", i + 2);
+          if (end !== -1) {
+            parts.push({ text: line.slice(i + 2, end), style: "bold" });
+            i = end + 2;
+            continue;
+          }
+        }
+
+        // italic *text*
+        if (line.startsWith("*", i)) {
+          const end = line.indexOf("*", i + 1);
+          if (end !== -1) {
+            parts.push({ text: line.slice(i + 1, end), style: "italic" });
+            i = end + 1;
+            continue;
+          }
+        }
+
+        // normal chunk until next marker
+        let next = line.length;
+        const b = line.indexOf("**", i);
+        const it = line.indexOf("*", i);
+        if (b !== -1) next = Math.min(next, b);
+        if (it !== -1) next = Math.min(next, it);
+
+        parts.push({ text: line.slice(i, next), style: "normal" });
+        i = next;
       }
+
+      return parts;
     }
-
-    // italic *text*
-    if (line.startsWith("*", i)) {
-      const end = line.indexOf("*", i + 1);
-      if (end !== -1) {
-        parts.push({ text: line.slice(i + 1, end), style: "italic" });
-        i = end + 1;
-        continue;
-      }
-    }
-
-    // normal text
-    let next = line.length;
-    const b = line.indexOf("**", i);
-    const it = line.indexOf("*", i);
-    if (b !== -1) next = Math.min(next, b);
-    if (it !== -1) next = Math.min(next, it);
-
-    parts.push({ text: line.slice(i, next), style: "normal" });
-    i = next;
-  }
-
-  return parts;
-}
-
 
     // ===============================
     // 5. DRAW TEXT IN A SQUARE
     // ===============================
 
     function drawText(text, r) {
-  if (!text) return;
+      if (!text) return;
 
-  const padding = 6; // your preferred padding
-  const maxWidth = r.w - padding * 2;
-  let fontSize = 12;
+      const padding = 6;
+      const maxWidth = r.w - padding * 2;
 
-  ctx.fillStyle = "#000";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
+      let fontSize = 12;     // start size
+      const minFont = 6;     // minimum size
 
-  while (fontSize >= 6) {
-    ctx.font = fontSize + "px system-ui";
+      ctx.fillStyle = "#000";
+      ctx.textBaseline = "top";
 
-    const paragraphs = text.split("\n");
-    const lines = [];
+      while (fontSize >= minFont) {
+        // For wrapping we measure in normal font
+        ctx.font = `${fontSize}px system-ui`;
 
-    for (const para of paragraphs) {
-      const words = para.split(" ");
-      let line = "";
+        // Build wrapped lines, respecting manual \n line breaks
+        const paragraphs = text.split("\n");
+        const lines = [];
 
-      for (const word of words) {
-        const test = line ? line + " " + word : word;
-        if (ctx.measureText(test).width > maxWidth) {
+        for (const para of paragraphs) {
+          const words = para.split(" ");
+          let line = "";
+
+          for (const word of words) {
+            const test = line ? `${line} ${word}` : word;
+            if (ctx.measureText(test).width > maxWidth) {
+              if (line) lines.push(line);
+              line = word;
+            } else {
+              line = test;
+            }
+          }
           if (line) lines.push(line);
-          line = word;
-        } else {
-          line = test;
+
+          // add a blank line between paragraphs
+          lines.push("");
         }
+        if (lines.length && lines[lines.length - 1] === "") lines.pop();
+
+        const lineHeight = Math.round(fontSize * 1.1);
+        const blockHeight = lines.length * lineHeight;
+
+        if (blockHeight <= r.h - padding * 2) {
+          const startY = r.y + (r.h - blockHeight) / 2;
+          const centerX = r.x + r.w / 2;
+
+          lines.forEach((ln, i) => {
+            const y = startY + i * lineHeight;
+
+            // blank line: keep vertical space, draw nothing
+            if (ln === "") return;
+
+            const parts = parseStyledLine(ln);
+
+            // Measure total width across styled segments
+            let totalWidth = 0;
+            parts.forEach(p => {
+              ctx.font =
+                p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+                p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                                       `${fontSize}px system-ui`;
+              totalWidth += ctx.measureText(p.text).width;
+            });
+
+            // Draw from a left anchor, but centered overall
+            let x = centerX - totalWidth / 2;
+            ctx.textAlign = "left";
+
+            parts.forEach(p => {
+              ctx.font =
+                p.style === "bold"   ? `bold ${fontSize}px system-ui` :
+                p.style === "italic" ? `italic ${fontSize}px system-ui` :
+                                       `${fontSize}px system-ui`;
+              ctx.fillText(p.text, x, y);
+              x += ctx.measureText(p.text).width;
+            });
+
+            ctx.textAlign = "center";
+          });
+
+          return;
+        }
+
+        fontSize--;
       }
-      if (line) lines.push(line);
 
-      // blank line between paragraphs
-      lines.push("");
+      // Fallback: always show something
+      ctx.font = `${minFont}px system-ui`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
+
+      // restore
+      ctx.textBaseline = "top";
     }
 
-    // remove last extra blank line
-    if (lines[lines.length - 1] === "") {
-      lines.pop();
-    }
-
-    const lineHeight = Math.round(fontSize * 1.1);
-    const blockHeight = lines.length * lineHeight;
-
-    if (blockHeight <= r.h - padding * 2) {
-      const startY = r.y + (r.h - blockHeight) / 2;
-      const centerX = r.x + r.w / 2;
-
-lines.forEach((ln, i) => {
-  const y = startY + i * lineHeight;
-
-  if (ln === "") return; // intentional blank line
-
-  const parts = parseStyledLine(ln);
-
-  let totalWidth = 0;
-  parts.forEach(p => {
-    ctx.font =
-      p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-      p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                             `${fontSize}px system-ui`;
-    totalWidth += ctx.measureText(p.text).width;
-  });
-
-  const centerX = r.x + r.w / 2;
-  let x = centerX - totalWidth / 2;
-
-  ctx.textAlign = "left";
-
-  parts.forEach(p => {
-    ctx.font =
-      p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-      p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                             `${fontSize}px system-ui`;
-
-    ctx.fillText(p.text, x, y);
-    x += ctx.measureText(p.text).width;
-  });
-
-  ctx.textAlign = "center";
-});
-
-    }
-
-
     // ===============================
-    // 5. MAIN DRAW FUNCTION
-    // ===============================
-
-    function draw() {
-      const S = canvas.clientWidth; // CSS pixels (visible size)
-      ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(board, 0, 0, S, S);
-
-    // Draw tiles + text for every square
-      for (let n = 1; n <= 100; n++) {
-        const entry = squareInfo[n]; // may be undefined if missing
-        const { row, col } = squareToRowCol(n);
-        const rect = cellRect(row, col);
-
-    // 1) tile background (always present via default)
-      drawTile(tileBySquare[n], rect);
-
-    // 2) text (optional)
-      if (entry) drawText(entry.text, rect);
-  }
-
-    // 3) debug grid on top
-      if (showGrid) drawGridOverlay();
-}
-
-
-    // ===============================
-    // 6. DRAW GRID FUNCTION
+    // 6. DRAW GRID (DEBUG)
     // ===============================
 
     function drawGridOverlay() {
-    const S = canvas.clientWidth;
-    const cell = S / 10;
+      const S = canvas.clientWidth;
+      const cell = S / 10;
 
-    ctx.strokeStyle = "red";
-    ctx.lineWidth = 3;
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 3;
 
-    // vertical lines
-    for (let i = 0; i <= 10; i++) {
-      const x = i * cell;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, S);
-      ctx.stroke();
-    }
+      for (let i = 0; i <= 10; i++) {
+        const x = i * cell;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, S);
+        ctx.stroke();
+      }
 
-    // horizontal lines
-    for (let i = 0; i <= 10; i++) {
-      const y = i * cell;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(S, y);
-      ctx.stroke();
-    }
+      for (let i = 0; i <= 10; i++) {
+        const y = i * cell;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(S, y);
+        ctx.stroke();
+      }
     }
 
     // ===============================
@@ -341,30 +310,53 @@ lines.forEach((ln, i) => {
       const img = getImage(tilePath);
       if (!img || !img.complete) return;
 
-      const pad = Math.max(2, r.w * 0.06); // ~6% gutter; tweak 0.06–0.12
+      const pad = Math.max(2, r.w * 0.06); // gutter to keep hand-drawn grid visible
       ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
     }
 
+    // ===============================
+    // 8. MAIN DRAW
+    // ===============================
 
+    function draw() {
+      const S = canvas.clientWidth;
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(board, 0, 0, S, S);
+
+      for (let n = 1; n <= 100; n++) {
+        const entry = squareInfo[n];
+        const { row, col } = squareToRowCol(n);
+        const rect = cellRect(row, col);
+
+        drawTile(tileBySquare[n], rect);
+        if (entry) drawText(entry.text, rect);
+      }
+
+      if (showGrid) drawGridOverlay();
+    }
 
     // ===============================
-    // 8. START EVERYTHING
+    // 9. START
     // ===============================
 
     async function start() {
       resizeCanvas();
-      await loadSquares();
+
+      try {
+        await loadSquares();
+      } catch (err) {
+        console.error("loadSquares failed:", err);
+      }
+
       draw();
     }
 
     board.onload = start;
+
     window.addEventListener("resize", () => {
       resizeCanvas();
       draw();
     });
-
-
   </script>
 </body>
 </html>
-
