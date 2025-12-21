@@ -156,37 +156,46 @@ canvas {
 
       ctx.fillStyle = "#000";
       ctx.textBaseline = "top";
+      ctx.textAlign = "center";
 
       while (fontSize > 8) {
         ctx.font = fontSize + "px system-ui";
+
         const words = text.split(" ");
         let lines = [];
         let line = "";
 
-        for (const word of words) {
-          const test = line + word + " ";
-          if (ctx.measureText(test).width > maxWidth) {
-            lines.push(line);
-            line = word + " ";
-          } else {
-            line = test;
-          }
+      for (const word of words) {
+        const test = line + word + " ";
+        if (ctx.measureText(test).width > maxWidth) {
+          lines.push(line.trim());
+          line = word + " ";
+        } else {
+          line = test;
         }
-        lines.push(line);
-
-        if (lines.length * fontSize <= r.h - padding * 2) {
-          lines.forEach((ln, i) => {
-            ctx.fillText(
-              ln,
-              r.x + padding,
-              r.y + padding + i * fontSize
-            );
-          });
-          return;
-        }
-        fontSize--;
       }
-    }
+      lines.push(line.trim());
+
+      const blockHeight = lines.length * fontSize;
+
+      if (blockHeight <= r.h - padding * 2) {
+        const startY = r.y + (r.h - blockHeight) / 2;
+        const centerX = r.x + r.w / 2;
+
+        lines.forEach((ln, i) => {
+          ctx.fillText(
+            ln,
+            centerX,
+            startY + i * fontSize
+          );
+        });
+        return;
+      }
+
+    fontSize--;
+  }
+}
+
 
     // ===============================
     // 5. MAIN DRAW FUNCTION
