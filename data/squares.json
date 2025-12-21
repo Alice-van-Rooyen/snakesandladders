@@ -18,11 +18,11 @@
   },
 
   "tileSets": {
-    "pink":   [3, 9, 20, 34, 65, 70, 84, 94, 99],
+    "pink":   [3, 9, 20, 34, 65, 70, 80, 84, 94, 99],
     "yellow": [2, 11, 45, 60, 63, 76, 81, 88, 97],
     "green":  [4, 13, 39, 41, 50, 68, 89, 98],
     "orange": [15, 22, 44, 55, 62, 75, 91],
-    "purple": [26, 47, 61, 69, 80, 86],
+    "purple": [26, 47, 61, 69, 86],
     "red":    [18, 29, 48, 74, 95],
     "aqua":   [6,37, 53, 87, 96 ],
     "grey":   [24, 49],
@@ -116,10 +116,10 @@
   "76":  { "text": "You mistake a long drive for a low-effort activity. Your small pain will now become BIG PAIN for at least 7 days.", "icon": null },
   "77":  { "text": "You try to rate your pain but it involves the Fibonacci sequence.", "icon": null },
   "78":  { "text": "You wear an actual outfit with accessories and perfume. You are back in your pyjamas by 3pm, but at least you smell good.", "icon": null },
-  "79":  { "text": "You eat an 'extended-family'-sized bar of chocolate. You would have preferred vegetables.", "icon": null },
+  "79":  { "text": "You eat an 'extended-family'\nsized bar of chocolate. You would have preferred vegetables.", "icon": null },
   "80":  { "text": "You are an obnoxious baby in physio. you cry, you eat, you sleep, you are filled with regret + PAIN.", "icon": null },
 
-  "81":  { "text": "You think 'maybe I'll go out today', the Gods of Convalescence laugh at your plans.", "icon": null },
+  "81":  { "text": "You think 'maybe I'll go out today', the **Gods of Convalescence** laugh at your plans.", "icon": null },
   "82":  { "text": "Your body temperature is now in Cryogenic Mode. Walt Disney is your new neighbour.", "icon": null },
   "83":  { "text": "You try to salute a stupid driver and realise your middle finger is now in the target audience for Viagra.", "icon": null },
   "84":  { "text": "You cry because ... honestly ... you forget why.", "icon": null },
