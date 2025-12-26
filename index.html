@@ -42,7 +42,6 @@ board.src = "assets/board.png";
 let showGrid = false;
 let playerSquare = 1;
 let logLines = [];
-let revealed = new Set(Array.from({ length: 100 }, (_, i) => i + 1));
 
 const imageCache = new Map();
 
@@ -67,6 +66,13 @@ function resizeCanvas() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
+function distance(a, b) {
+  const ra = squareToRowCol(a);
+  const rb = squareToRowCol(b);
+  return Math.abs(ra.row - rb.row) + Math.abs(ra.col - rb.col);
+}
+
+  
 /* ===============================
    GAME DATA
 =============================== */
@@ -171,25 +177,18 @@ function drawTile(tilePath, r) {
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-function drawFog(r) {
-  ctx.save();
+function drawFog(r, distance) {
+  let alpha;
 
-  // blur everything underneath
-  ctx.filter = "blur(8px)";
-  ctx.globalAlpha = 0.55;
-  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  if (distance === 0) return;        // current square = clear
+  if (distance === 1) alpha = 0.35;  // immediate neighbours
+  else if (distance === 2) alpha = 0.65;
+  else alpha = 0.85;                 // far away
+
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
   ctx.fillRect(r.x, r.y, r.w, r.h);
-
-  // reset
-  ctx.filter = "none";
-  ctx.globalAlpha = 1;
-
-  // optional soft border
-  ctx.strokeStyle = "rgba(0,0,0,0.1)";
-  ctx.strokeRect(r.x, r.y, r.w, r.h);
-
-  ctx.restore();
 }
+
 
 function draw() {
   const S = canvas.clientWidth;
@@ -204,10 +203,8 @@ function draw() {
     drawTile(tileBySquare[n], rect);
 
     // 2) fog if not revealed
-    if (!revealed.has(n)) {
-      drawFog(rect);
-      continue; // don't draw text underneath fog
-    }
+    const d = distance(n, playerSquare);
+    drawFog(rect, d);
 
     // 3) draw text (revealed squares only)
     if (squareInfo[n]) drawText(squareInfo[n].text, rect);
