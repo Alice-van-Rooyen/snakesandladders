@@ -199,28 +199,26 @@ function draw() {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
-    // 1) Always draw the tile
+    // Always draw the tile
     drawTile(tileBySquare[n], rect);
 
-    // 2) Distance-based visibility
-    const d = distance(n, playerSquare);
+    const d = Math.abs(n - playerSquare);
 
-    // Fogged squares (hidden)
+    // Fogged squares
     if (d > 1) {
-      ctx.globalAlpha = 0.85;
       drawFog(rect, d);
-      ctx.globalAlpha = 1;
-      continue; // stops text from drawing
+      continue; // stop here — no text
     }
 
-    // 3) Visible squares: draw text
+    // Visible squares
     if (squareInfo[n]) {
       drawText(squareInfo[n].text, rect);
     }
   }
 
-  drawToken(); // don't forget your token
+  drawToken();
 }
+
 
 
 function drawToken() {
