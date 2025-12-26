@@ -28,9 +28,9 @@
 <body>
 <canvas id="game"></canvas>
 
-<script>
+<script type="module">
 /* ===============================
-   BASIC SETUP
+   CORE SETUP
 =============================== */
 
 const canvas = document.getElementById("game");
@@ -40,33 +40,105 @@ const board = new Image();
 board.src = "assets/board.png";
 
 let playerSquare = 1;
-let squareInfo = {};
-let tileBySquare = {};
+
+const imageCache = new Map();
+function getImage(path) {
+  if (!path) return null;
+  if (imageCache.has(path)) return imageCache.get(path);
+  const img = new Image();
+  img.src = path;
+  imageCache.set(path, img);
+  return img;
+}
 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const size = canvas.clientWidth;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
+
+  canvas.width = Math.round(size * dpr);
+  canvas.height = Math.round(size * dpr);
+
+  // draw in CSS pixels
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
 }
 
+/* ===============================
+   GRID MATH
+=============================== */
+
 function squareToRowCol(n) {
-  const i = n - 1;
-  const rowFromBottom = Math.floor(i / 10);
-  const col = rowFromBottom % 2 === 0 ? i % 10 : 9 - (i % 10);
+  const index = n - 1;
+  const rowFromBottom = Math.floor(index / 10);
+  const col = (rowFromBottom % 2 === 0)
+    ? (index % 10)
+    : (9 - (index % 10));
   return { row: 9 - rowFromBottom, col };
 }
 
 function cellRect(row, col) {
-  const size = canvas.clientWidth / 10;
-  return { x: col * size, y: row * size, w: size, h: size };
+  const cell = canvas.clientWidth / 10;
+  return { x: col * cell, y: row * cell, w: cell, h: cell };
+}
+
+// Grid (Manhattan) distance on the 10x10 layout.
+// (This gives the “cross” reveal effect: current + N/S/E/W at distance 1.)
+function distance(a, b) {
+  const ra = squareToRowCol(a);
+  const rb = squareToRowCol(b);
+  return Math.abs(ra.row - rb.row) + Math.abs(ra.col - rb.col);
 }
 
 /* ===============================
-   TEXT SCRAMBLER (THE MAGIC)
+   GAME DATA (JSON)
 =============================== */
 
+let squareInfo = {};
+let tileBySquare = {};
+let tiles = {};
+let tileSets = {};
+
+async function loadSquares() {
+  const res = await fetch("data/squares.json?v=" + Date.now());
+  const data = await res.json();
+
+  squareInfo = data.squares || {};
+  tiles = data.tiles || {};
+  tileSets = data.tileSets || {};
+
+  const defaultName = data.defaultTile || "blue";
+  const defaultPath = tiles[defaultName];
+
+  // Default everything
+  tileBySquare = {};
+  for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
+
+  // Overrides
+  for (const colourName of Object.keys(tileSets)) {
+    const path = tiles[colourName];
+    for (const n of (tileSets[colourName] || [])) {
+      tileBySquare[n] = path;
+    }
+  }
+}
+
+/* ===============================
+   TILES
+=============================== */
+
+function drawTile(tilePath, r) {
+  const img = getImage(tilePath);
+  if (!img || !img.complete) return;
+
+  const pad = r.w * 0.06; // keeps your hand-drawn grid visible
+  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+}
+
+/* ===============================
+   SEPSIS FOG: SCRAMBLE TEXT
+=============================== */
+
+// Deterministic scramble so each square always “looks the same”
 function scrambleText(text, seed) {
   let s = seed * 99991;
   const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -79,104 +151,152 @@ function scrambleText(text, seed) {
 }
 
 /* ===============================
-   DRAW HELPERS
+   TEXT RENDERING (supports \n)
 =============================== */
 
-function drawText(text, rect, alpha = 1) {
+function drawText(text, r, alpha = 1) {
+  if (!text) return;
+
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = "#000";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
 
+  const padding = 6;
+  const maxWidth = r.w - padding * 2;
+
   let fontSize = 12;
   while (fontSize >= 6) {
     ctx.font = `${fontSize}px system-ui`;
+
     const lines = [];
-    let line = "";
+    const paragraphs = text.split("\n");
 
-    for (const word of text.split(" ")) {
-      const test = line ? line + " " + word : word;
-      if (ctx.measureText(test).width > rect.w - 8) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = test;
+    for (const para of paragraphs) {
+      const words = para.split(" ");
+      let line = "";
+
+      for (const w of words) {
+        const test = line ? `${line} ${w}` : w;
+        if (ctx.measureText(test).width > maxWidth) {
+          if (line) lines.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
       }
-    }
-    if (line) lines.push(line);
+      if (line) lines.push(line);
 
-    const height = lines.length * fontSize;
-    if (height <= rect.h - 8) {
-      const y0 = rect.y + (rect.h - height) / 2;
-      lines.forEach((l, i) =>
-        ctx.fillText(l, rect.x + rect.w / 2, y0 + i * fontSize)
-      );
+      // paragraph break marker (small gap)
+      lines.push({ type: "gap" });
+    }
+    if (lines.length && lines[lines.length - 1]?.type === "gap") lines.pop();
+
+    const lineH = Math.round(fontSize * 1.1);
+    const gapH = Math.round(lineH * 0.35);
+
+    const blockH = lines.reduce((h, item) => {
+      return h + (item?.type === "gap" ? gapH : lineH);
+    }, 0);
+
+    if (blockH <= r.h - padding * 2) {
+      let y = r.y + (r.h - blockH) / 2;
+      const cx = r.x + r.w / 2;
+
+      for (const item of lines) {
+        if (item?.type === "gap") { y += gapH; continue; }
+        ctx.fillText(item, cx, y);
+        y += lineH;
+      }
+
       ctx.restore();
       return;
     }
+
     fontSize--;
   }
+
   ctx.restore();
 }
 
 /* ===============================
-   DRAW LOOP
+   TOKEN
 =============================== */
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(board, 0, 0, canvas.width, canvas.height);
-
-  for (let n = 1; n <= 100; n++) {
-    const { row, col } = squareToRowCol(n);
-    const r = cellRect(row, col);
-    const d = Math.abs(n - playerSquare);
-
-    const text = squareInfo[n]?.text;
-    if (!text) continue;
-
-    if (d <= 1) {
-      // clear readable text
-      drawText(text, r, 1);
-    } else {
-      // scrambled fog
-      const scrambled = scrambleText(text, n);
-      drawText(scrambled, r, 0.35);
-    }
-  }
-
-  // draw player token
+function drawToken() {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
+
   ctx.beginPath();
   ctx.arc(r.x + r.w * 0.8, r.y + r.h * 0.2, r.w * 0.08, 0, Math.PI * 2);
   ctx.fillStyle = "red";
   ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 /* ===============================
-   LOAD DATA
+   MAIN DRAW
 =============================== */
 
-async function loadData() {
-  const res = await fetch("data/squares.json");
-  const data = await res.json();
-  squareInfo = data.squares || {};
+function draw() {
+  const S = canvas.clientWidth;
+
+  ctx.clearRect(0, 0, S, S);
+  if (board.complete) ctx.drawImage(board, 0, 0, S, S);
+
+  for (let n = 1; n <= 100; n++) {
+    const { row, col } = squareToRowCol(n);
+    const r = cellRect(row, col);
+
+    // 1) tile
+    drawTile(tileBySquare[n], r);
+
+    // 2) text (real near you, scrambled far away)
+    const d = distance(n, playerSquare);
+    const t = squareInfo[n]?.text;
+    if (!t) continue;
+
+    if (d <= 1) {
+      drawText(t, r, 1);
+    } else {
+      // scrambled + faint veil so it feels foggy but not blank
+      drawText(scrambleText(t, n), r, 0.30);
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+  }
+
+  drawToken();
 }
 
-window.addEventListener("keydown", e => {
-  if (e.key === " ") {
+/* ===============================
+   INPUT
+=============================== */
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") {
+    e.preventDefault();
     playerSquare = Math.min(100, playerSquare + 1);
     draw();
   }
 });
 
-board.onload = async () => {
+/* ===============================
+   START
+=============================== */
+
+async function start() {
   resizeCanvas();
-  await loadData();
+  await loadSquares();
   draw();
-};
+}
+
+board.onload = start;
+board.onerror = () => { console.warn("board.png failed to load"); start(); };
 
 window.addEventListener("resize", () => {
   resizeCanvas();
