@@ -18,8 +18,7 @@
       { "label": "Forward to 55", "to": 55 },
       { "label": "Side quest to 47", "to": 47 }
     ]
-  }
-}
+  },
   
   "defaultTile": "blue",
 
