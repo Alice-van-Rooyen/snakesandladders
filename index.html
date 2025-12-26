@@ -2,21 +2,25 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Board Prototype</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Snakes Board</title>
+
   <style>
     body {
       margin: 0;
-      background: #eee;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #e6e6e6;
     }
+
     canvas {
       width: 90vmin;
       height: 90vmin;
-      background: #f6f6f6;
+      background: #eee;
       border: 5px solid #000;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
     }
   </style>
 </head>
@@ -24,115 +28,389 @@
 <body>
 <canvas id="game"></canvas>
 
-<script>
+<script type="module">
+/* ===============================
+   CONSTANTS & CONFIG
+=============================== */
+const CONFIG = {
+  BOARD_SIZE: 10,
+  TRAIL_BEHIND: 6,
+  AHEAD: 1,
+  TILE_PADDING: 0.06,
+  TOKEN_SIZE: 0.38,
+  TOKEN_POSITION: { x: 0.8, y: 0.2 },
+  TEXT_PADDING: 6,
+  FONT_SIZE_RANGE: { max: 12, min: 6 },
+  LINE_HEIGHT: 1.1,
+  GAP_HEIGHT: 0.35
+};
+
+/* ===============================
+   STATE MANAGEMENT
+=============================== */
+const state = {
+  playerSquare: 1,
+  visited: [1],
+  squareInfo: {},
+  tileBySquare: {},
+  tiles: {},
+  tileSets: {},
+  imageCache: new Map()
+};
+
+/* ===============================
+   CANVAS SETUP
+=============================== */
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-const SIZE = 10;
-const TILE_COUNT = 100;
-const TILE_SIZE = () => canvas.width / 10;
-
-const boardImage = new Image();
-boardImage.src = "assets/board.png";
+const board = new Image();
+board.src = "assets/board.png";
 
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
 
-let playerSquare = 1;
-
-/* ---------- RESIZE ---------- */
-function resize() {
+function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const size = Math.min(window.innerWidth, window.innerHeight);
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
+  const size = canvas.clientWidth;
+
+  canvas.width = Math.round(size * dpr);
+  canvas.height = Math.round(size * dpr);
+
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
 }
-window.addEventListener("resize", resize);
-resize();
 
-/* ---------- GRID MATH ---------- */
+/* ===============================
+   IMAGE CACHING
+=============================== */
+function getImage(path) {
+  if (!path) return null;
+  
+  if (state.imageCache.has(path)) {
+    return state.imageCache.get(path);
+  }
+  
+  const img = new Image();
+  img.src = path;
+  state.imageCache.set(path, img);
+  return img;
+}
+
+/* ===============================
+   GRID MATH
+=============================== */
 function squareToRowCol(n) {
-  const i = n - 1;
-  const rowFromBottom = Math.floor(i / 10);
-  const col = rowFromBottom % 2 === 0 ? i % 10 : 9 - (i % 10);
-  return { row: 9 - rowFromBottom, col };
+  const index = n - 1;
+  const rowFromBottom = Math.floor(index / CONFIG.BOARD_SIZE);
+  const isEvenRow = rowFromBottom % 2 === 0;
+  const col = isEvenRow 
+    ? (index % CONFIG.BOARD_SIZE)
+    : (CONFIG.BOARD_SIZE - 1 - (index % CONFIG.BOARD_SIZE));
+  
+  return { 
+    row: CONFIG.BOARD_SIZE - 1 - rowFromBottom, 
+    col 
+  };
 }
 
-function cellRect(n) {
-  const { row, col } = squareToRowCol(n);
-  const s = canvas.width / 10;
-  return { x: col * s, y: row * s, w: s, h: s };
+function cellRect(row, col) {
+  const cell = canvas.clientWidth / CONFIG.BOARD_SIZE;
+  return { 
+    x: col * cell, 
+    y: row * cell, 
+    w: cell, 
+    h: cell 
+  };
 }
 
-/* ---------- FOG LOGIC ---------- */
-function isVisible(n) {
-  return Math.abs(n - playerSquare) <= 1;
+/* ===============================
+   PLAYER MOVEMENT
+=============================== */
+function recordMove(toSquare) {
+  toSquare = Math.max(1, Math.min(100, toSquare));
+
+  const step = Math.sign(toSquare - state.playerSquare);
+  
+  while (state.playerSquare !== toSquare) {
+    state.playerSquare += step;
+    state.visited.push(state.playerSquare);
+  }
+
+  // Keep visited history manageable
+  if (state.visited.length > 500) {
+    state.visited = state.visited.slice(-200);
+  }
 }
 
-function drawFog(rect, strength = 10) {
-  const w = Math.max(1, Math.floor(rect.w / strength));
-  const h = Math.max(1, Math.floor(rect.h / strength));
+/* ===============================
+   VISIBILITY LOGIC
+=============================== */
+function getVisibleSquares() {
+  const visible = new Set();
 
-  const temp = document.createElement("canvas");
-  temp.width = w;
-  temp.height = h;
-  const tctx = temp.getContext("2d");
+  // Current square
+  visible.add(state.playerSquare);
 
-  tctx.drawImage(
-    canvas,
-    rect.x, rect.y, rect.w, rect.h,
-    0, 0, w, h
+  // Squares ahead
+  for (let i = 1; i <= CONFIG.AHEAD; i++) {
+    visible.add(Math.min(100, state.playerSquare + i));
+  }
+
+  // Recent trail (last N visited squares)
+  const maxTrail = CONFIG.TRAIL_BEHIND + CONFIG.AHEAD + 1;
+  const recentVisited = state.visited.slice(-maxTrail);
+  recentVisited.forEach(sq => visible.add(sq));
+
+  return visible;
+}
+
+/* ===============================
+   DATA LOADING
+=============================== */
+async function loadGameData() {
+  const res = await fetch("data/squares.json?v=" + Date.now());
+  const data = await res.json();
+
+  state.squareInfo = data.squares || {};
+  state.tiles = data.tiles || {};
+  state.tileSets = data.tileSets || {};
+
+  const defaultTile = data.tiles[data.defaultTile || "blue"];
+
+  // Initialize all squares with default tile
+  state.tileBySquare = Object.fromEntries(
+    Array.from({ length: 100 }, (_, i) => [i + 1, defaultTile])
   );
 
-  ctx.drawImage(temp, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
-  ctx.fillStyle = "rgba(255,255,255,0.25)";
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  // Apply color-specific tiles
+  for (const [colorName, squares] of Object.entries(state.tileSets)) {
+    const tilePath = state.tiles[colorName];
+    if (tilePath) {
+      squares.forEach(n => state.tileBySquare[n] = tilePath);
+    }
+  }
 }
 
-/* ---------- DRAW LOOP ---------- */
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(boardImage, 0, 0, canvas.width, canvas.height);
+/* ===============================
+   RENDERING: TILES
+=============================== */
+function drawTile(tilePath, rect) {
+  const img = getImage(tilePath);
+  if (!img?.complete) return;
 
-  for (let i = 1; i <= 100; i++) {
-    const r = cellRect(i);
-    if (!isVisible(i)) {
-      drawFog(r);
+  const pad = rect.w * CONFIG.TILE_PADDING;
+  ctx.drawImage(
+    img, 
+    rect.x + pad, 
+    rect.y + pad, 
+    rect.w - 2 * pad, 
+    rect.h - 2 * pad
+  );
+}
+
+/* ===============================
+   RENDERING: TEXT
+=============================== */
+function measureTextBlock(lines, fontSize) {
+  const lineH = Math.round(fontSize * CONFIG.LINE_HEIGHT);
+  const gapH = Math.round(lineH * CONFIG.GAP_HEIGHT);
+
+  return lines.reduce((height, item) => {
+    return height + (item?.type === "gap" ? gapH : lineH);
+  }, 0);
+}
+
+function wrapTextIntoLines(text, maxWidth, ctx) {
+  const lines = [];
+  const paragraphs = text.split("\n");
+
+  for (const para of paragraphs) {
+    const words = para.split(" ");
+    let line = "";
+
+    for (const word of words) {
+      const testLine = line ? `${line} ${word}` : word;
+      
+      if (ctx.measureText(testLine).width > maxWidth) {
+        if (line) lines.push(line);
+        line = word;
+      } else {
+        line = testLine;
+      }
+    }
+    
+    if (line) lines.push(line);
+    lines.push({ type: "gap" }); // Paragraph break
+  }
+
+  // Remove trailing gap
+  if (lines[lines.length - 1]?.type === "gap") {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+function drawText(text, rect, alpha = 1) {
+  if (!text) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  const maxWidth = rect.w - CONFIG.TEXT_PADDING * 2;
+  const maxHeight = rect.h - CONFIG.TEXT_PADDING * 2;
+
+  // Find largest font size that fits
+  for (let fontSize = CONFIG.FONT_SIZE_RANGE.max; fontSize >= CONFIG.FONT_SIZE_RANGE.min; fontSize--) {
+    ctx.font = `${fontSize}px system-ui`;
+
+    const lines = wrapTextIntoLines(text, maxWidth, ctx);
+    const blockHeight = measureTextBlock(lines, fontSize);
+
+    if (blockHeight <= maxHeight) {
+      renderTextLines(lines, rect, fontSize);
+      break;
+    }
+  }
+
+  ctx.restore();
+}
+
+function renderTextLines(lines, rect, fontSize) {
+  const lineH = Math.round(fontSize * CONFIG.LINE_HEIGHT);
+  const gapH = Math.round(lineH * CONFIG.GAP_HEIGHT);
+  const blockH = measureTextBlock(lines, fontSize);
+
+  let y = rect.y + (rect.h - blockH) / 2;
+  const cx = rect.x + rect.w / 2;
+
+  for (const item of lines) {
+    if (item?.type === "gap") {
+      y += gapH;
+    } else {
+      ctx.fillText(item, cx, y);
+      y += lineH;
+    }
+  }
+}
+
+/* ===============================
+   RENDERING: TOKEN
+=============================== */
+function drawToken() {
+  const { row, col } = squareToRowCol(state.playerSquare);
+  const rect = cellRect(row, col);
+
+  const size = rect.w * CONFIG.TOKEN_SIZE;
+  const cx = rect.x + rect.w * CONFIG.TOKEN_POSITION.x;
+  const cy = rect.y + rect.h * CONFIG.TOKEN_POSITION.y;
+
+  if (tokenImg.complete && tokenImg.naturalWidth > 0) {
+    ctx.drawImage(tokenImg, cx - size / 2, cy - size / 2, size, size);
+    
+    // Subtle outline for visibility
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+  } else {
+    // Fallback dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = "red";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.stroke();
+  }
+}
+
+/* ===============================
+   TEXT SCRAMBLING (FOG OF WAR)
+=============================== */
+function scrambleText(text, seed) {
+  // Deterministic pseudo-random generator
+  let s = seed * 99991;
+  const rand = () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+
+  return [...text].map(ch => {
+    if (/[a-z]/.test(ch)) {
+      return String.fromCharCode(97 + Math.floor(rand() * 26));
+    }
+    if (/[A-Z]/.test(ch)) {
+      return String.fromCharCode(65 + Math.floor(rand() * 26));
+    }
+    return ch;
+  }).join("");
+}
+
+/* ===============================
+   MAIN DRAW
+=============================== */
+function draw() {
+  const size = canvas.clientWidth;
+  ctx.clearRect(0, 0, size, size);
+  ctx.drawImage(board, 0, 0, size, size);
+
+  const visible = getVisibleSquares();
+
+  for (let n = 1; n <= 100; n++) {
+    const { row, col } = squareToRowCol(n);
+    const rect = cellRect(row, col);
+
+    // Draw tile background
+    drawTile(state.tileBySquare[n], rect);
+
+    // Draw text (scrambled if not visible)
+    const entry = state.squareInfo[n];
+    if (entry?.text) {
+      const displayText = visible.has(n) 
+        ? entry.text 
+        : scrambleText(entry.text, n);
+      drawText(displayText, rect);
     }
   }
 
   drawToken();
 }
 
-/* ---------- TOKEN ---------- */
-function drawToken() {
-  const r = cellRect(playerSquare);
-  const size = r.w * 0.35;
-  const cx = r.x + r.w * 0.8;
-  const cy = r.y + r.h * 0.2;
-
-  if (tokenImg.complete) {
-    ctx.drawImage(tokenImg, cx - size/2, cy - size/2, size, size);
-  } else {
-    ctx.fillStyle = "red";
-    ctx.beginPath();
-    ctx.arc(cx, cy, size/2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-/* ---------- INPUT ---------- */
+/* ===============================
+   INPUT HANDLING
+=============================== */
 window.addEventListener("keydown", e => {
   if (e.key === " ") {
-    playerSquare = Math.min(100, playerSquare + 1);
+    e.preventDefault();
+    recordMove(state.playerSquare + 1);
     draw();
   }
 });
 
-/* ---------- START ---------- */
-boardImage.onload = () => draw();
+/* ===============================
+   INITIALIZATION
+=============================== */
+async function init() {
+  resizeCanvas();
+  await loadGameData();
+  draw();
+}
+
+board.onload = init;
+board.onerror = () => {
+  console.warn("board.png failed to load");
+  init();
+};
+
 tokenImg.onload = () => draw();
+
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  draw();
+});
 </script>
 </body>
 </html>
