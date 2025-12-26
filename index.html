@@ -208,7 +208,7 @@ function draw() {
     // Fogged squares (hidden)
     if (d > 1) {
       ctx.globalAlpha = 0.85;
-      drawFog(rect);
+      drawFog(rect, d);
       ctx.globalAlpha = 1;
       continue; // stops text from drawing
     }
