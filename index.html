@@ -196,19 +196,30 @@ function draw() {
   ctx.drawImage(board, 0, 0, S, S);
 
   for (let n = 1; n <= 100; n++) {
-    const { row, col } = squareToRowCol(n);
-    const rect = cellRect(row, col);
+  const { row, col } = squareToRowCol(n);
+  const rect = cellRect(row, col);
 
-    // 1) draw tile
-    drawTile(tileBySquare[n], rect);
+  // 1. Always draw the tile
+  drawTile(tileBySquare[n], rect);
 
-    // 2) fog if not revealed
-    const d = distance(n, playerSquare);
-    drawFog(rect, d);
+  // 2. Distance-based visibility
+  const d = distance(n, playerSquare);
 
-    // 3) draw text (revealed squares only)
-    if (squareInfo[n]) drawText(squareInfo[n].text, rect);
+  // Fogged squares (hidden)
+  if (d > 1) {
+    ctx.globalAlpha = 0.85;
+    drawFog(rect);
+    ctx.globalAlpha = 1;
+    continue; // ⬅️ THIS STOPS TEXT FROM DRAWING
   }
+
+  // 3. Visible squares
+  if (squareInfo[n]) {
+    drawText(squareInfo[n].text, rect);
+  }
+}
+
+
 
   drawToken();
 }
