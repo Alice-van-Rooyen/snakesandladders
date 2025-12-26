@@ -1,177 +1,138 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8">
-<title>Recovery Board</title>
-
-<style>
-  body {
-    margin: 0;
-    background: #e6e6e6;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-  }
-
-  canvas {
-    width: 90vmin;
-    height: 90vmin;
-    background: #eee;
-    border: 6px solid black;
-  }
-</style>
+  <meta charset="utf-8">
+  <title>Board Prototype</title>
+  <style>
+    body {
+      margin: 0;
+      background: #eee;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    canvas {
+      width: 90vmin;
+      height: 90vmin;
+      background: #f6f6f6;
+      border: 5px solid #000;
+    }
+  </style>
 </head>
 
 <body>
 <canvas id="game"></canvas>
 
 <script>
-/* ================= BASIC SETUP ================= */
-
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+
 const SIZE = 10;
 const TILE_COUNT = 100;
+const TILE_SIZE = () => canvas.width / 10;
 
-canvas.width = canvas.height = 900;
-
-let playerSquare = 1;
-let visited = [1];
-
-const boardImg = new Image();
-boardImg.src = "assets/board.png";
+const boardImage = new Image();
+boardImage.src = "assets/board.png";
 
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
 
-/* ------------------ DATA ------------------ */
+let playerSquare = 1;
 
-const spinners = {
-  17: { move: -3 },
-  42: { move: +5 }
-};
-
-// simple filler text for now
-const squareText = {};
-for (let i = 1; i <= 100; i++) {
-  squareText[i] = `Square ${i}`;
+/* ---------- RESIZE ---------- */
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const size = Math.min(window.innerWidth, window.innerHeight);
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
+window.addEventListener("resize", resize);
+resize();
 
-/* ================= GRID HELPERS ================= */
-
+/* ---------- GRID MATH ---------- */
 function squareToRowCol(n) {
-  const index = n - 1;
-  const rowFromBottom = Math.floor(index / 10);
-  const col = rowFromBottom % 2 === 0 ? index % 10 : 9 - (index % 10);
+  const i = n - 1;
+  const rowFromBottom = Math.floor(i / 10);
+  const col = rowFromBottom % 2 === 0 ? i % 10 : 9 - (i % 10);
   return { row: 9 - rowFromBottom, col };
 }
 
-function cellRect(row, col) {
+function cellRect(n) {
+  const { row, col } = squareToRowCol(n);
   const s = canvas.width / 10;
   return { x: col * s, y: row * s, w: s, h: s };
 }
 
-/* ================= VISIBILITY ================= */
-
-function getVisibleSquares() {
-  const set = new Set();
-  set.add(playerSquare);
-  set.add(playerSquare - 1);
-  set.add(playerSquare + 1);
-  return set;
+/* ---------- FOG LOGIC ---------- */
+function isVisible(n) {
+  return Math.abs(n - playerSquare) <= 1;
 }
 
-/* ================= DRAWING ================= */
+function drawFog(rect, strength = 10) {
+  const w = Math.max(1, Math.floor(rect.w / strength));
+  const h = Math.max(1, Math.floor(rect.h / strength));
 
-function drawTileBackground(r) {
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
+  const temp = document.createElement("canvas");
+  temp.width = w;
+  temp.height = h;
+  const tctx = temp.getContext("2d");
+
+  tctx.drawImage(
+    canvas,
+    rect.x, rect.y, rect.w, rect.h,
+    0, 0, w, h
+  );
+
+  ctx.drawImage(temp, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 }
 
-function drawText(text, r) {
-  ctx.fillStyle = "#000";
-  ctx.font = "11px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  const words = text.split(" ");
-  let line = "";
-  let y = r.y + r.h / 2 - 10;
-
-  for (let w of words) {
-    let test = line + w + " ";
-    if (ctx.measureText(test).width > r.w - 6) {
-      ctx.fillText(line, r.x + r.w / 2, y);
-      line = w + " ";
-      y += 12;
-    } else {
-      line = test;
-    }
-  }
-  ctx.fillText(line, r.x + r.w / 2, y);
-}
-
-function drawToken() {
-  const { row, col } = squareToRowCol(playerSquare);
-  const r = cellRect(row, col);
-
-  ctx.beginPath();
-  ctx.arc(r.x + r.w * 0.8, r.y + r.h * 0.2, r.w * 0.12, 0, Math.PI * 2);
-  ctx.fillStyle = "red";
-  ctx.fill();
-}
-
-/* ================= DRAW LOOP ================= */
-
+/* ---------- DRAW LOOP ---------- */
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(boardImg, 0, 0, canvas.width, canvas.height);
-
-  const visible = getVisibleSquares();
+  ctx.drawImage(boardImage, 0, 0, canvas.width, canvas.height);
 
   for (let i = 1; i <= 100; i++) {
-    const { row, col } = squareToRowCol(i);
-    const r = cellRect(row, col);
-
-    if (visible.has(i)) {
-      drawText(squareText[i], r);
-    } else {
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.fillRect(r.x, r.y, r.w, r.h);
+    const r = cellRect(i);
+    if (!isVisible(i)) {
+      drawFog(r);
     }
   }
 
   drawToken();
 }
 
-/* ================= MOVEMENT ================= */
+/* ---------- TOKEN ---------- */
+function drawToken() {
+  const r = cellRect(playerSquare);
+  const size = r.w * 0.35;
+  const cx = r.x + r.w * 0.8;
+  const cy = r.y + r.h * 0.2;
 
-function movePlayer(step) {
-  playerSquare = Math.max(1, Math.min(100, playerSquare + step));
-  visited.push(playerSquare);
-
-  // Spinner check
-  if (spinners[playerSquare]) {
-    playerSquare += spinners[playerSquare].move;
-    playerSquare = Math.max(1, Math.min(100, playerSquare));
+  if (tokenImg.complete) {
+    ctx.drawImage(tokenImg, cx - size/2, cy - size/2, size, size);
+  } else {
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.arc(cx, cy, size/2, 0, Math.PI * 2);
+    ctx.fill();
   }
-
-  draw();
 }
 
-/* ================= INPUT ================= */
-
+/* ---------- INPUT ---------- */
 window.addEventListener("keydown", e => {
   if (e.key === " ") {
-    e.preventDefault();
-    movePlayer(1);
+    playerSquare = Math.min(100, playerSquare + 1);
+    draw();
   }
 });
 
-/* ================= START ================= */
-
-boardImg.onload = () => draw();
+/* ---------- START ---------- */
+boardImage.onload = () => draw();
+tokenImg.onload = () => draw();
 </script>
 </body>
 </html>
