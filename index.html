@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Jumping snakes</title>
+  <title>Home is where the hospital is</title>
 
   <style>
     body {
@@ -221,23 +221,19 @@ function scrambleText(text, seed) {
 }
 
 function fogAlphaForSquare(n) {
-  // distance along the path (works with your serpentine board numbering)
   const d = Math.abs(n - playerSquare);
 
-  // Tune these:
-  const near = 0.55; // opacity for squares just outside visible range
-  const far  = 0.92; // opacity for very far squares
+  const near = 0.55;
+  const far  = 0.92;
 
-  // Start fogging only beyond your “visible” window:
-  const start = 2;   // distance where fog begins
-  const end   = 20;  // distance where fog reaches "far"
+  const start = 2;
+  const end   = 20;
 
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
 
 function fogVeilForSquare(n) {
-  // Optional: a pale overlay to make the “sepsis haze” feel physical
   const d = Math.abs(n - playerSquare);
   const near = 0.06;
   const far  = 0.22;
@@ -323,12 +319,14 @@ function recordMove(toSquare) {
     visited.push(playerSquare);
   }
 
-  // cap the history
   if (visited.length > 500) visited = visited.slice(-250);
 }
 
 function getVisibleSet() {
   const vis = new Set();
+
+  // Square 1 is ALWAYS visible + legible (“still attached to hospital”)
+  vis.add(1);
 
   // current
   vis.add(playerSquare);
@@ -338,8 +336,8 @@ function getVisibleSet() {
     vis.add(Math.min(100, playerSquare + i));
   }
 
-  // behind: last N visited squares (works across row direction changes)
-  for (let i = visited.length - 1; i >= 0 && vis.size < (1 + AHEAD + TRAIL_BEHIND); i--) {
+  // behind: last N visited squares
+  for (let i = visited.length - 1; i >= 0 && vis.size < (2 + AHEAD + TRAIL_BEHIND); i--) {
     vis.add(visited[i]);
   }
 
@@ -353,8 +351,7 @@ function drawTetherString(t) {
   const a = squareCenter(1);
   const b = tokenAnchor(t);
 
-  // “Jolt” rises with movement, decays over time (handled in tick)
-  const wobbleAmp = (canvas.clientWidth / 10) * 0.10 * (0.25 + stringJolt); // cell-based scaling
+  const wobbleAmp = (canvas.clientWidth / 10) * 0.10 * (0.25 + stringJolt);
   const segs = 14;
 
   ctx.save();
@@ -370,17 +367,14 @@ function drawTetherString(t) {
   const dy = b.y - a.y;
   const len = Math.hypot(dx, dy) || 1;
 
-  // Perpendicular unit vector for sideways wobble
   const px = -dy / len;
   const py = dx / len;
 
-  // Frequency shifts slightly with distance and time
   const baseFreq = 6 + Math.min(10, len / 120);
   const phase = (t * 0.004) + (len * 0.002);
 
   for (let i = 1; i <= segs; i++) {
     const u = i / segs;
-    // ease-in/out so ends feel “tied”
     const ease = Math.sin(Math.PI * u);
 
     const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
@@ -406,12 +400,7 @@ function drawTetherString(t) {
 /* ===============================
    PACK A — SPINNABLE SNAKES & LADDERS
 =============================== */
-function isJumpSquare(n) {
-  return !!jumps[n];
-}
-
 function jumpDirectionGlyph(from, to) {
-  // simple, asset-free cue
   return (to > from) ? "↗" : "↘";
 }
 
@@ -451,9 +440,8 @@ function drawSpinnerOverSquare(n, t) {
   const radius = r.w * 0.22;
 
   const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
-  const rot = (t - spinStartT) * 0.018; // rotation speed
+  const rot = (t - spinStartT) * 0.018;
 
-  // subtle “flash” behind spinner
   ctx.save();
   ctx.globalAlpha = 0.18;
   ctx.fillStyle = "#fff";
@@ -468,7 +456,6 @@ function drawSpinnerOverSquare(n, t) {
   ctx.strokeStyle = "rgba(0,0,0,0.75)";
   ctx.lineCap = "round";
 
-  // arc length tightens as spin completes
   const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, arcSpan);
@@ -483,36 +470,31 @@ function updateSpin(t) {
   const elapsed = t - spinStartT;
   if (elapsed < spinDurationMs) return;
 
-  // apply the jump
   spinActive = false;
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
-  // Important: we “teleport” after the spin, but we still record path steps between squares
-  // (metaphor: you *do* move, but it isn’t linear or chosen).
   recordMove(to);
-
-  // a bit more jolt after a jump
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
-  // If chain jumps exist, allow them (rare but possible)
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
   }
 }
 
 /* ===============================
-   TOKEN
+   TOKEN (now bottom-left of square)
 =============================== */
 function tokenAnchor(t) {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
 
-  // Base token position within the cell
-  let cx = r.x + r.w * 0.8;
-  let cy = r.y + r.h * 0.2;
+  // Bottom-left inside the square, with a little padding
+  const pad = r.w * 0.10;
+  let cx = r.x + pad;
+  let cy = r.y + r.h - pad;
 
-  // Wiggle while spinning (a little “uncertainty”)
+  // Wiggle while spinning
   if (spinActive) {
     const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
     const amp = r.w * 0.06 * (1 - p);
@@ -525,7 +507,7 @@ function tokenAnchor(t) {
 
 function drawToken(t) {
   const { x: cx, y: cy, r } = tokenAnchor(t);
-  const size = r.w * 0.45; // bigger token
+  const size = r.w * 0.45;
 
   if (tokenImg.complete && tokenImg.naturalWidth > 0) {
     ctx.drawImage(tokenImg, cx - size / 2, cy - size / 2, size, size);
@@ -550,7 +532,6 @@ function draw(t) {
   const S = canvas.clientWidth;
   ctx.clearRect(0, 0, S, S);
 
-  // board background (grid)
   if (board.complete && board.naturalWidth > 0) {
     ctx.drawImage(board, 0, 0, S, S);
   }
@@ -561,27 +542,22 @@ function draw(t) {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
-    // Always draw the tile for every square
     drawTile(tileBySquare[n], rect);
-
-    // Jump hint (only when visible)
     drawJumpHint(n, rect, visible.has(n));
 
-    // Text (if present)
     const entry = squareInfo[n];
     if (!entry || !entry.text) {
-      // still draw spinner if this is the spin square
       drawSpinnerOverSquare(n, t);
       continue;
     }
 
-    if (visible.has(n)) {
-      drawText(entry.text, rect); // readable
+    // Square 1: always legible (not fogged), regardless of anything else
+    if (n === 1 || visible.has(n)) {
+      drawText(entry.text, rect);
     } else {
       const a = fogAlphaForSquare(n);
-      drawText(scrambleText(entry.text, n), rect, a); // fog gradient
+      drawText(scrambleText(entry.text, n), rect, a);
 
-      // OPTIONAL: veil overlay
       ctx.save();
       ctx.globalAlpha = fogVeilForSquare(n);
       ctx.fillStyle = "#fff";
@@ -589,13 +565,10 @@ function draw(t) {
       ctx.restore();
     }
 
-    // Spinner overlays above text/tile
     drawSpinnerOverSquare(n, t);
   }
 
-  // PACK B: tether string under token, above board
   drawTetherString(t);
-
   drawToken(t);
 }
 
@@ -609,11 +582,8 @@ function attemptStep(delta) {
   if (next === playerSquare) return;
 
   recordMove(next);
-
-  // movement “jolt” for the tether
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // PACK A: if we landed on a jump square, spin then jump
   startSpinIfNeeded(playerSquare);
 }
 
@@ -647,11 +617,9 @@ document.addEventListener("keydown", (e) => {
 function tick(t) {
   lastT = t;
 
-  // decay tether energy
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  // resolve spin -> jump when time elapsed
   updateSpin(t);
 
   draw(t);
@@ -677,11 +645,9 @@ async function start() {
   rafId = requestAnimationFrame(tick);
 }
 
-// Ensure we start even if images fail
 board.onload = start;
 board.onerror = start;
 
-// If token loads after start, the loop will draw it automatically
 tokenImg.onload = () => {};
 tokenImg.onerror = () => {};
 
