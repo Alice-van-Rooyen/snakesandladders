@@ -42,7 +42,7 @@ board.src = "assets/board.png";
 let showGrid = false;
 let playerSquare = 1;
 let logLines = [];
-let revealed = new Set([1]);
+let revealed = new Set(Array.from({ length: 100 }, (_, i) => i + 1));
 
 const imageCache = new Map();
 
