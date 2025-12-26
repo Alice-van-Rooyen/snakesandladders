@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>alice is a grouch</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -85,7 +85,7 @@ let recallExpiresAt = 0;           // memory window (ms epoch from performance.n
 const RECALL_WINDOW_MS = 6000;     // “if you can remember it”
 
 // Tether “string” dynamics
-let stringJolt = 0;      // rises on movement, decays over time
+let stringJolt = 0;
 
 // String styling (lighter + thinner + string-like)
 const STRING_COLOR = "rgba(184, 38, 60, 0.55)"; // soft red string
@@ -222,7 +222,6 @@ async function loadJumps() {
         if (from < 1 || from > 100 || to < 1 || to > 100) continue;
         if (from === to) continue;
 
-        // If also present in spinners, keep spinner list (new format wins)
         if (!spinnerMap[from]) {
           spinnerMap[from] = [to];
           spinnerSquares.add(from);
@@ -391,7 +390,7 @@ function getVisibleSet() {
    PACK B — TETHER STRING
 =============================== */
 function drawTetherString(t) {
-  // Pin is now ALSO bottom-right of square 1 (to match token corner logic)
+  // Pin is bottom-right of square 1
   const a = squareCornerAnchor(1, "br");
   const b = tokenAnchor(t);
 
@@ -432,7 +431,7 @@ function drawTetherString(t) {
 
   ctx.stroke();
 
-  // Small “knot” at square 1 (now on the same bottom-right anchor)
+  // Knot at square 1
   ctx.fillStyle = STRING_KNOT_COLOR;
   ctx.beginPath();
   ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
@@ -452,7 +451,6 @@ function drawSpinnerHint(n, rect, visible) {
   if (!isSpinnerSquare(n)) return;
   if (!visible) return;
 
-  // Unpredictable → show “spin” symbol, not direction
   ctx.save();
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -463,7 +461,6 @@ function drawSpinnerHint(n, rect, visible) {
   ctx.restore();
 }
 
-// Better-than-Math.random when available (still lightweight)
 function randInt(maxExclusive) {
   if (maxExclusive <= 1) return 0;
   const c = globalThis.crypto;
@@ -482,56 +479,49 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 /* ===============================
-   HOSPITAL PULL + RECALL
+   HOSPITAL PULL + RECALL (fixed)
 =============================== */
 function hospitalPullMaybe(tNow) {
-  // Only trigger a pull if you’re not already at 1, and not mid-spin.
   if (spinActive) return false;
   if (playerSquare === 1) return false;
 
-  // Roll the dice
   if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
 
-  // Store where you were (the “previous square”) and allow recall briefly
+  // Store where you were and allow recall briefly
   lastSafeSquare = playerSquare;
   recallSquare = lastSafeSquare;
   recallExpiresAt = tNow + RECALL_WINDOW_MS;
 
-  // Start a “spin” at the current square, but the destination is hospital (1)
+  // Start a “spin” at the current square, destination is hospital (1)
   spinActive = true;
   spinSquare = playerSquare;
   spinStartT = tNow;
   pendingJumpTo = 1;
   inputLocked = true;
 
-  // tug the string
   stringJolt = Math.min(1.2, stringJolt + 0.55);
-
   return true;
 }
 
 function canRecall(tNow) {
+  // FIX: don’t tie recall to the tiny fog/visible window (it made recall almost never available).
+  // “If you can remember it” is now purely time-limited.
   if (!recallSquare) return false;
   if (tNow > recallExpiresAt) return false;
-
-  // “If you can remember it” → you can only recall if it’s still in your visible window.
-  // This ties recall to the breadcrumb trail rather than perfect memory.
-  const vis = getVisibleSet();
-  return vis.has(recallSquare);
+  if (playerSquare !== 1) return false;
+  if (inputLocked) return false;
+  return true;
 }
 
 function attemptRecall(tNow) {
-  if (inputLocked) return;
-  if (playerSquare !== 1) return;
   if (!canRecall(tNow)) return;
 
   const target = recallSquare;
 
-  // one-shot: once you’ve recalled, it’s gone
+  // one-shot
   recallSquare = null;
   recallExpiresAt = 0;
 
-  // move back out (still step-recorded)
   recordMove(target);
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
@@ -598,11 +588,8 @@ function updateSpin(t) {
   pendingJumpTo = null;
 
   recordMove(to);
-
-  // extra jolt after a jump/pull
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
-  // If you land on a spinner square, allow chain spinners
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
   }
@@ -612,13 +599,11 @@ function updateSpin(t) {
    TOKEN (bottom-right)
 =============================== */
 function tokenAnchor(t) {
-  // token is bottom-right of current square
   const a = squareCornerAnchor(playerSquare, "br");
   let cx = a.x;
   let cy = a.y;
   const r = a.r;
 
-  // Wiggle while spinning
   if (spinActive) {
     const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
     const amp = r.w * 0.06 * (1 - p);
@@ -675,7 +660,6 @@ function draw(t) {
       continue;
     }
 
-    // Square 1: always legible (not fogged), regardless of anything else
     if (n === 1 || visible.has(n)) {
       drawText(entry.text, rect);
     } else {
@@ -695,9 +679,8 @@ function draw(t) {
   drawTetherString(t);
   drawToken(t);
 
-  // tiny hint if recall is possible (only while at hospital)
-  // kept subtle: a small “↩” near the knot when available
-  if (playerSquare === 1 && canRecall(t)) {
+  // Recall hint: shows only when R will actually work
+  if (canRecall(t)) {
     const pin = squareCornerAnchor(1, "br");
     ctx.save();
     ctx.globalAlpha = 0.75;
@@ -719,16 +702,13 @@ function attemptStep(delta, tNow) {
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
 
-  // track last non-1 place (so “previous square” is meaningful)
   if (playerSquare !== 1) lastSafeSquare = playerSquare;
 
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // If we landed on a spinner square, spin then jump (random destination)
   if (startSpinIfNeeded(playerSquare)) return;
 
-  // Otherwise, occasionally: hospital pull
   hospitalPullMaybe(tNow);
 }
 
@@ -769,11 +749,9 @@ document.addEventListener("keydown", (e) => {
    TICK / LOOP
 =============================== */
 function tick(t) {
-  // decay tether energy
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  // resolve spin -> jump when time elapsed
   updateSpin(t);
 
   draw(t);
