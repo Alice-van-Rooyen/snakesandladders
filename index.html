@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Alice is foggy</title>
+  <title>Alice is not foggy</title>
 
   <style>
     body {
@@ -165,6 +165,37 @@ function scrambleText(text, seed) {
   }).join("");
 }
 
+function fogAlphaForSquare(n) {
+  // distance along the path (works with your serpentine board numbering)
+  const d = Math.abs(n - playerSquare);
+
+  // Tune these:
+  const near = 0.55; // opacity for squares just outside visible range
+  const far  = 0.92; // opacity for very far squares
+
+  // Start fogging only beyond your “visible” window:
+  // If you show current + ahead 1 + behind trail, keep using your visible Set for truth.
+  // This gradient is for the NOT-visible squares only.
+  const start = 2;   // distance where fog begins
+  const end   = 20;  // distance where fog reaches "far"
+
+  const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
+  return near + (far - near) * t;
+}
+
+function fogVeilForSquare(n) {
+  // Optional: a pale overlay to make the “sepsis haze” feel physical
+  const d = Math.abs(n - playerSquare);
+  const near = 0.06;
+  const far  = 0.22;
+  const start = 2;
+  const end   = 20;
+
+  const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
+  return near + (far - near) * t;
+}
+
+  
 function drawText(text, r, alpha = 1) {
   if (!text) return;
 
@@ -317,11 +348,19 @@ function draw() {
     if (!entry || !entry.text) continue;
 
     if (visible.has(n)) {
-      drawText(entry.text, rect);                 // readable
-    } else {
-      drawText(scrambleText(entry.text, n), rect, 0.85); // fogged but still “present”
-    }
-  }
+  drawText(entry.text, rect); // readable
+} else {
+  const a = fogAlphaForSquare(n);
+  drawText(scrambleText(entry.text, n), rect, a); // fog gradient
+
+  // OPTIONAL: veil overlay (comment out if you don’t like it)
+  ctx.save();
+  ctx.globalAlpha = fogVeilForSquare(n);
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.restore();
+}
+
 
   drawToken();
 }
