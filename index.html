@@ -299,15 +299,23 @@ function draw() {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
+    // Always draw the tile
     drawTile(tileBySquare[n], rect);
 
     const entry = squareInfo[n];
     if (!entry) continue;
 
     if (visible.has(n)) {
-      drawText(entry.text, rect);          // real text
+      // clear: real text, full contrast
+      drawText(entry.text, rect, 1);
     } else {
-      drawText(scrambleText(entry.text, n), rect);  // scrambled text
+      // fog: scrambled text + low contrast + veil
+      drawText(scrambleText(entry.text, n), rect, 0.28);
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.55)"; // fog strength (0.35–0.75)
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
     }
   }
 
