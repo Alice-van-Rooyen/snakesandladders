@@ -255,6 +255,11 @@ async function start() {
 }
 
 board.onload = start;
+board.onerror = () => {
+  console.warn("Board image failed to load — continuing anyway");
+  start();
+};
+
 window.addEventListener("resize", () => {
   resizeCanvas();
   draw();
