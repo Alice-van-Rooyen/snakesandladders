@@ -45,10 +45,21 @@ tokenImg.src = "assets/token.png";
 
 let playerSquare = 1;
 
-const TRAIL_BEHIND = 6; // how many past squares to keep readable
-const AHEAD = 1;        // how many future squares to preview
+const TRAIL_BEHIND = 6;
+const AHEAD = 1;
+let visited = [1];
 
-let visited = [1];      // movement history (path order)
+function recordMove(toSquare) {
+  toSquare = Math.max(1, Math.min(100, toSquare));
+
+  const step = (toSquare > playerSquare) ? 1 : -1;
+  while (playerSquare !== toSquare) {
+    playerSquare += step;
+    visited.push(playerSquare);
+  }
+
+  if (visited.length > 500) visited = visited.slice(-200);
+}
 
 const imageCache = new Map();
 function getImage(path) {
