@@ -176,8 +176,8 @@ function drawFog(r) {
 
   // blur everything underneath
   ctx.filter = "blur(8px)";
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = "#eee";
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.fillRect(r.x, r.y, r.w, r.h);
 
   // reset
