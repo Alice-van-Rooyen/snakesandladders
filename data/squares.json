@@ -36,7 +36,8 @@
     "gold":   "assets/tiles/gold.png",
     "peach":  "assets/tiles/peach.png",
     "terracotta":   "assets/tiles/terracotta.png",
-    "lime":   "assets/tiles/lime.png"
+    "lime":   "assets/tiles/lime.png",
+    "darkyellow":   "assets/tiles/darkyellow.png"
   },
 
   "tileSets": {
@@ -51,7 +52,8 @@
     "gold":   [16, 31, 54, 83],
     "peach":  [14, 32, 52, 73, 43, 79],
     "terracotta": [7, 51],
-    "lime":   [10]
+    "lime":   [10],
+    "darkyellow":   [10],
   },
 
   "squares": {
