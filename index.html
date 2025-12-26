@@ -59,11 +59,21 @@ All content lives in data/squares.json
     }
 
     window.addEventListener("keydown", (e) => {
+
       if (e.key.toLowerCase() === "g") {
         showGrid = !showGrid;
         draw();
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        playerSquare = Math.min(100, playerSquare + 1);
+        applySpinner();
+        draw();
       }
     });
+
 
     function resizeCanvas() {
       const dpr = window.devicePixelRatio || 1;
@@ -74,6 +84,19 @@ All content lives in data/squares.json
 
       // Draw in CSS pixels (0..cssSize), not device pixels
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // ===============================
+    // SPINNER STATE
+    // ===============================
+    let playerSquare = 1;
+    let spinners = {};
+    let logLines = [];
+    let busy = false;
+
+    function log(msg) {
+      logLines.unshift(msg);
+      logLines = logLines.slice(0, 6);
     }
 
     // ===============================
@@ -90,6 +113,7 @@ All content lives in data/squares.json
 
       tilePaths = data.tiles || {};
       squareInfo = data.squares || {};
+      spinners = data.spinners || {};
 
       const defaultName = data.defaultTile;
       const defaultPath = tilePaths[defaultName];
@@ -179,6 +203,20 @@ All content lives in data/squares.json
       return parts;
     }
 
+    // ===============================
+    // SPINNER + GAME STATE
+    // ===============================
+
+    let spinners = {};         // loaded from JSON
+    let playerSquare = 1;      // current position
+    let busy = false;          // prevents double-triggers
+    let logLines = [];         // tiny debug feed
+
+    function log(msg) {
+      logLines.unshift(msg);
+      logLines = logLines.slice(0, 6);
+    }
+    
     // ===============================
     // 5. DRAW TEXT IN A SQUARE
     // ===============================
@@ -293,6 +331,27 @@ All content lives in data/squares.json
   ctx.textBaseline = "top";
 }
 
+    // ===============================
+    // 6.APPLY SPINNER
+    // ===============================
+    function applySpinner() {
+      const spinner = spinners[playerSquare];
+      if (!spinner) return;
+
+    const options = spinner.choices || [];
+      if (!options.length) return;
+
+    const pick = options[Math.floor(Math.random() * options.length)];
+
+    if (pick.move !== undefined) {
+    playerSquare += pick.move;
+    log(`Spinner: ${pick.move > 0 ? "+" : ""}${pick.move}`);
+  } else if (pick.to !== undefined) {
+    playerSquare = pick.to;
+    log(`Jump to ${pick.to}`);
+  }
+}
+
 
     // ===============================
     // 6. DRAW GRID (DEBUG)
@@ -355,6 +414,41 @@ All content lives in data/squares.json
       if (showGrid) drawGridOverlay();
     }
 
+
+    // ===============================
+    // 8. DRAW TOKEN
+    // ===============================
+
+    function drawToken() {
+  const { row, col } = squareToRowCol(playerSquare);
+  const r = cellRect(row, col);
+
+  ctx.beginPath();
+  ctx.arc(r.x + r.w * 0.85, r.y + r.h * 0.15, r.w * 0.08, 0, Math.PI * 2);
+  ctx.fillStyle = "red";
+  ctx.fill();
+}
+
+    // ===============================
+    // 8. DRAW LOG
+    // ===============================
+function drawLog() {
+  const w = 260;
+  const h = 100;
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillRect(10, 10, w, h);
+
+  ctx.fillStyle = "#000";
+  ctx.font = "12px system-ui";
+  ctx.textBaseline = "top";
+
+  logLines.forEach((line, i) => {
+    ctx.fillText(line, 16, 16 + i * 14);
+  });
+}
+
+
+    
     // ===============================
     // 9. START
     // ===============================
