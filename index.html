@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Home is where the hospital is</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -55,16 +55,19 @@ let tiles = {};          // { blue: "assets/tiles/blue.png", ... }
 let tileSets = {};       // { pink: [..], ... }
 let tileBySquare = {};   // { 1: "assets/tiles/blue.png", ... }
 
-// Snakes & ladders jumps
-// Expected data/jumps.json format (if present):
-// { "jumps": { "4": 14, "17": 7, ... } }
-let jumps = {};          // { 4: 14, ... } (numbers)
-let jumpFromSet = new Set();
+// Spinnable snakes & ladders (random outcomes)
+// Supported data/jumps.json formats:
+//
+// NEW (recommended):
+// { "spinners": { "4": [14, 2, 27], "9": [3, 18] } }
+//
+// Back-compat (single fixed jump):
+// { "jumps": { "4": 14, "9": 2 } }
+let spinnerMap = {};     // { 4: [14,2,27], ... }
+let spinnerSquares = new Set();
 
 // Animation / interaction state
 let rafId = null;
-let lastT = 0;
-
 let inputLocked = false;
 
 // Spin (on landing) state
@@ -76,6 +79,10 @@ let pendingJumpTo = null;
 
 // Tether “string” dynamics
 let stringJolt = 0;      // rises on movement, decays over time
+
+// String styling (lighter + thinner + more “string-like”)
+const STRING_COLOR = "rgba(184, 38, 60, 0.55)"; // a soft red string
+const STRING_KNOT_COLOR = "rgba(184, 38, 60, 0.85)";
 
 // Image cache
 const imageCache = new Map();
@@ -161,28 +168,51 @@ async function loadSquares() {
 }
 
 async function loadJumps() {
-  // Optional file. If absent, game still runs with no jumps.
+  // Optional file. If absent, game still runs with no spinners.
   try {
     const res = await fetch("data/jumps.json?v=" + Date.now());
     if (!res.ok) throw new Error("jumps.json not ok");
     const data = await res.json();
 
-    const raw = data.jumps || {};
-    jumps = {};
-    jumpFromSet = new Set();
+    spinnerMap = {};
+    spinnerSquares = new Set();
 
-    for (const [k, v] of Object.entries(raw)) {
-      const from = Number(k);
-      const to = Number(v);
-      if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
-      if (from < 1 || from > 100 || to < 1 || to > 100) continue;
-      if (from === to) continue;
-      jumps[from] = to;
-      jumpFromSet.add(from);
+    // NEW format: spinners: { "from": [to1,to2,...] }
+    if (data.spinners && typeof data.spinners === "object") {
+      for (const [k, arr] of Object.entries(data.spinners)) {
+        const from = Number(k);
+        if (!Number.isFinite(from) || from < 1 || from > 100) continue;
+
+        const list = (Array.isArray(arr) ? arr : [arr])
+          .map(Number)
+          .filter(to => Number.isFinite(to) && to >= 1 && to <= 100 && to !== from);
+
+        if (list.length === 0) continue;
+
+        spinnerMap[from] = list;
+        spinnerSquares.add(from);
+      }
+    }
+
+    // Back-compat: jumps: { "from": to }
+    if (data.jumps && typeof data.jumps === "object") {
+      for (const [k, v] of Object.entries(data.jumps)) {
+        const from = Number(k);
+        const to = Number(v);
+        if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+        if (from < 1 || from > 100 || to < 1 || to > 100) continue;
+        if (from === to) continue;
+
+        // If also present in spinners, keep spinner list (new format wins)
+        if (!spinnerMap[from]) {
+          spinnerMap[from] = [to];
+          spinnerSquares.add(from);
+        }
+      }
     }
   } catch (err) {
-    jumps = {};
-    jumpFromSet = new Set();
+    spinnerMap = {};
+    spinnerSquares = new Set();
   }
 }
 
@@ -260,7 +290,6 @@ function drawText(text, r, alpha = 1) {
   while (fontSize >= 6) {
     ctx.font = `${fontSize}px system-ui`;
 
-    // support manual line breaks
     const paragraphs = text.split("\n");
     const lines = [];
 
@@ -351,12 +380,13 @@ function drawTetherString(t) {
   const a = squareCenter(1);
   const b = tokenAnchor(t);
 
-  const wobbleAmp = (canvas.clientWidth / 10) * 0.10 * (0.25 + stringJolt);
+  const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
   const segs = 14;
 
   ctx.save();
-  ctx.lineWidth = Math.max(2, canvas.clientWidth * 0.006);
-  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  // thinner + lighter
+  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0028);
+  ctx.strokeStyle = STRING_COLOR;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
@@ -389,41 +419,62 @@ function drawTetherString(t) {
   ctx.stroke();
 
   // Small “knot” at square 1
-  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillStyle = STRING_KNOT_COLOR;
   ctx.beginPath();
-  ctx.arc(a.x, a.y, Math.max(2.5, canvas.clientWidth * 0.008), 0, Math.PI * 2);
+  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
 }
 
 /* ===============================
-   PACK A — SPINNABLE SNAKES & LADDERS
+   PACK A — SPINNABLE SNAKES & LADDERS (random)
 =============================== */
-function jumpDirectionGlyph(from, to) {
-  return (to > from) ? "↗" : "↘";
+function isSpinnerSquare(n) {
+  return spinnerSquares.has(n);
 }
 
-function drawJumpHint(n, rect, visible) {
-  if (!jumpFromSet.has(n)) return;
+function drawSpinnerHint(n, rect, visible) {
+  if (!isSpinnerSquare(n)) return;
   if (!visible) return;
 
-  const to = jumps[n];
-  const glyph = jumpDirectionGlyph(n, to);
-
+  // Unpredictable → show “spin” symbol, not direction
   ctx.save();
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
-  ctx.font = `${Math.max(10, Math.round(rect.w * 0.18))}px system-ui`;
+  ctx.font = `${Math.max(11, Math.round(rect.w * 0.18))}px system-ui`;
   ctx.textAlign = "right";
   ctx.textBaseline = "top";
-  ctx.fillText(glyph, rect.x + rect.w - rect.w * 0.08, rect.y + rect.h * 0.08);
+  ctx.fillText("⟳", rect.x + rect.w - rect.w * 0.08, rect.y + rect.h * 0.08);
   ctx.restore();
 }
 
+// Better-than-Math.random when available (still lightweight)
+function randInt(maxExclusive) {
+  if (maxExclusive <= 1) return 0;
+
+  // crypto is available on modern browsers + GitHub Pages
+  const c = globalThis.crypto;
+  if (c && c.getRandomValues) {
+    const buf = new Uint32Array(1);
+    c.getRandomValues(buf);
+    return buf[0] % maxExclusive;
+  }
+  return Math.floor(Math.random() * maxExclusive);
+}
+
+function chooseSpinnerDestination(fromSquare) {
+  const options = spinnerMap[fromSquare];
+  if (!options || options.length === 0) return null;
+  const idx = randInt(options.length);
+  return options[idx];
+}
+
 function startSpinIfNeeded(fromSquare) {
-  const to = jumps[fromSquare];
-  if (!to) return false;
+  if (!isSpinnerSquare(fromSquare)) return false;
+
+  const to = chooseSpinnerDestination(fromSquare);
+  if (!to || to === fromSquare) return false;
 
   spinActive = true;
   spinSquare = fromSquare;
@@ -442,6 +493,7 @@ function drawSpinnerOverSquare(n, t) {
   const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
   const rot = (t - spinStartT) * 0.018;
 
+  // subtle “flash” behind spinner
   ctx.save();
   ctx.globalAlpha = 0.18;
   ctx.fillStyle = "#fff";
@@ -474,24 +526,27 @@ function updateSpin(t) {
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
+  // Metaphor choice:
+  // - we still “move” in recorded steps between squares even though the jump is not chosen
   recordMove(to);
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
+  // Allow chain spinners if you land on another spinner
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
   }
 }
 
 /* ===============================
-   TOKEN (now bottom-left of square)
+   TOKEN (bottom-right)
 =============================== */
 function tokenAnchor(t) {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
 
-  // Bottom-left inside the square, with a little padding
+  // Bottom-right inside the square, with padding
   const pad = r.w * 0.10;
-  let cx = r.x + pad;
+  let cx = r.x + r.w - pad;
   let cy = r.y + r.h - pad;
 
   // Wiggle while spinning
@@ -543,7 +598,7 @@ function draw(t) {
     const rect = cellRect(row, col);
 
     drawTile(tileBySquare[n], rect);
-    drawJumpHint(n, rect, visible.has(n));
+    drawSpinnerHint(n, rect, visible.has(n));
 
     const entry = squareInfo[n];
     if (!entry || !entry.text) {
@@ -584,6 +639,7 @@ function attemptStep(delta) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
+  // if we landed on a spinner square, spin then jump (random destination)
   startSpinIfNeeded(playerSquare);
 }
 
@@ -615,11 +671,11 @@ document.addEventListener("keydown", (e) => {
    TICK / LOOP
 =============================== */
 function tick(t) {
-  lastT = t;
-
+  // decay tether energy
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
+  // resolve spin -> jump when time elapsed
   updateSpin(t);
 
   draw(t);
@@ -647,9 +703,6 @@ async function start() {
 
 board.onload = start;
 board.onerror = start;
-
-tokenImg.onload = () => {};
-tokenImg.onerror = () => {};
 
 window.addEventListener("resize", () => {
   resizeCanvas();
