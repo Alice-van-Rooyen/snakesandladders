@@ -238,8 +238,7 @@ window.addEventListener("keydown", e => {
   if (e.key === " ") {
     e.preventDefault();
 
-    playerSquare = Math.min(100, playerSquare + 1);
-    revealed.add(playerSquare);   
+    playerSquare = Math.min(100, playerSquare + 1);   
 
     draw();
   }
