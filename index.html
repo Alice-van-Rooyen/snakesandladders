@@ -172,14 +172,23 @@ function drawTile(tilePath, r) {
 }
 
 function drawFog(r) {
-  // Fog strength: raise/lower the last number (0.0–1.0)
-  ctx.fillStyle = "rgba(255,255,255,0.78)";
+  ctx.save();
+
+  // blur everything underneath
+  ctx.filter = "blur(8px)";
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "#eee";
   ctx.fillRect(r.x, r.y, r.w, r.h);
 
-  // Optional: subtle vignette edge so it feels less flat
-  ctx.strokeStyle = "rgba(0,0,0,0.08)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+  // reset
+  ctx.filter = "none";
+  ctx.globalAlpha = 1;
+
+  // optional soft border
+  ctx.strokeStyle = "rgba(0,0,0,0.1)";
+  ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+  ctx.restore();
 }
 
 function draw() {
