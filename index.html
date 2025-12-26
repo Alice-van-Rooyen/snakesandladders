@@ -182,53 +182,115 @@ function drawText(text, r) {
    DRAWING
 =============================== */
 
-function drawTile(tilePath, r) {
+// -------------------------------
+// OFFSCREEN CONTENT LAYER
+// -------------------------------
+const contentLayer = document.createElement("canvas");
+const contentCtx = contentLayer.getContext("2d");
+
+// reusable tiny buffer for pixelation (avoid creating 100 canvases per frame)
+const pixelBuf = document.createElement("canvas");
+const pixelBufCtx = pixelBuf.getContext("2d");
+
+// Call this inside resizeCanvas() (add these 2 lines there)
+function resizeContentLayer() {
+  const dpr = window.devicePixelRatio || 1;
+  const size = canvas.clientWidth;
+
+  contentLayer.width = size * dpr;
+  contentLayer.height = size * dpr;
+
+  // draw in CSS pixels
+  contentCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  contentCtx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = false;
+}
+
+// -------------------------------
+// DRAW HELPERS (to a given context)
+// -------------------------------
+function drawTileTo(c, tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete) return;
 
   const pad = r.w * 0.06;
-  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+  c.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-function drawFog(r, distance) {
-  // How strong the pixelation is
-  const strength =
-    distance === 1 ? 6 :
-    distance === 2 ? 10 :
-    16;
+// Simple text renderer (no bold/italic). If you want styled text here,
+// paste your styled drawText and I’ll convert it to drawTextTo exactly.
+function drawTextTo(c, text, r) {
+  if (!text) return;
 
-  const w = Math.max(1, Math.floor(r.w / strength));
-  const h = Math.max(1, Math.floor(r.h / strength));
+  const padding = 6;
+  const maxWidth = r.w - padding * 2;
+  let fontSize = 12;
 
-  // Create offscreen buffer
-  const off = document.createElement("canvas");
-  off.width = w;
-  off.height = h;
-  const offCtx = off.getContext("2d");
+  c.fillStyle = "#000";
+  c.textAlign = "center";
+  c.textBaseline = "top";
 
-  // Disable smoothing for pixel effect
-  offCtx.imageSmoothingEnabled = false;
-  ctx.imageSmoothingEnabled = false;
+  while (fontSize >= 6) {
+    c.font = `${fontSize}px system-ui`;
 
-  // Copy the region into the tiny canvas
-  offCtx.drawImage(
-    canvas,
-    r.x, r.y, r.w, r.h,
-    0, 0, w, h
-  );
+    // Respect manual line breaks
+    const paragraphs = text.split("\n");
+    const lines = [];
 
-  // Draw it back up, pixelated
-  ctx.drawImage(
-    off,
-    0, 0, w, h,
-    r.x, r.y, r.w, r.h
-  );
+    for (const para of paragraphs) {
+      const words = para.split(" ");
+      let line = "";
 
-  // Optional: light fog overlay
-  ctx.fillStyle = "rgba(255,255,255,0.15)";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
+      for (const w of words) {
+        const test = line ? line + " " + w : w;
+        if (c.measureText(test).width > maxWidth) {
+          if (line) lines.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if (line) lines.push(line);
+
+      // small gap between paragraphs
+      lines.push(""); // blank line marker
+    }
+
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
+
+    const lineHeight = Math.round(fontSize * 1.1);
+    const blockHeight = lines.length * lineHeight;
+
+    if (blockHeight <= r.h - padding * 2) {
+      const startY = r.y + (r.h - blockHeight) / 2;
+      const cx = r.x + r.w / 2;
+
+      lines.forEach((ln, i) => {
+        if (ln === "") return; // paragraph gap (keeps it small)
+        c.fillText(ln, cx, startY + i * lineHeight);
+      });
+
+      return;
+    }
+
+    fontSize--;
+  }
 }
 
+// Placeholder spinner icon (tiny circle). Swap later for your image.
+function drawSpinnerIconTo(c, r) {
+  c.save();
+  c.strokeStyle = "rgba(0,0,0,0.55)";
+  c.lineWidth = 2;
+  c.beginPath();
+  c.arc(r.x + r.w * 0.2, r.y + r.h * 0.2, r.w * 0.08, 0, Math.PI * 2);
+  c.stroke();
+  c.restore();
+}
+
+// -------------------------------
+// BUILD CONTENT LAYER (tiles + text + spinner icons)
+// -------------------------------
 function drawContentLayer() {
   const S = canvas.clientWidth;
   contentCtx.clearRect(0, 0, S, S);
@@ -237,49 +299,72 @@ function drawContentLayer() {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
-    // tile
     drawTileTo(contentCtx, tileBySquare[n], rect);
-
-    // text
     if (squareInfo[n]) drawTextTo(contentCtx, squareInfo[n].text, rect);
-
-    // spinner icon (if any)
     if (spinners[n]) drawSpinnerIconTo(contentCtx, rect);
   }
 }
 
+// -------------------------------
+// PIXEL FOG (pixelate FROM content layer, not main canvas)
+// -------------------------------
+function drawFogPixelated(rect, d) {
+  const strength = (d === 1) ? 8 : (d === 2) ? 14 : 22; // tweak to taste
 
+  const w = Math.max(1, Math.floor(rect.w / strength));
+  const h = Math.max(1, Math.floor(rect.h / strength));
+
+  pixelBuf.width = w;
+  pixelBuf.height = h;
+  pixelBufCtx.imageSmoothingEnabled = false;
+
+  // sample square region from content layer into tiny buffer
+  pixelBufCtx.clearRect(0, 0, w, h);
+  pixelBufCtx.drawImage(contentLayer, rect.x, rect.y, rect.w, rect.h, 0, 0, w, h);
+
+  // draw back up onto main, pixelated
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(pixelBuf, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
+
+  // light veil so it feels foggy (optional)
+  const veil = (d === 1) ? 0.10 : (d === 2) ? 0.18 : 0.25;
+  ctx.fillStyle = `rgba(255,255,255,${veil})`;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+}
+
+// -------------------------------
+// MAIN DRAW
+// -------------------------------
 function draw() {
   const S = canvas.clientWidth;
   ctx.clearRect(0, 0, S, S);
+
+  // 1) crisp hand-drawn board + grid
   ctx.drawImage(board, 0, 0, S, S);
 
+  // 2) build content once
+  drawContentLayer();
+
+  // 3) composite per-square
   for (let n = 1; n <= 100; n++) {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
-    // Always draw the tile
-    drawTile(tileBySquare[n], rect);
+    // IMPORTANT: use your grid-aware distance(), not Math.abs(n - playerSquare)
+    const d = distance(n, playerSquare);
 
-    const d = Math.abs(n - playerSquare);
-
-    // Fogged squares
-    if (d > 1) {
-      drawFog(rect, d);
-      continue; // stop here — no text
-    }
-
-    // Visible squares
-    if (squareInfo[n]) {
-      drawText(squareInfo[n].text, rect);
+    if (d <= 1) {
+      // clear squares: copy content normally
+      ctx.drawImage(contentLayer, rect.x, rect.y, rect.w, rect.h,
+                    rect.x, rect.y, rect.w, rect.h);
+    } else {
+      // fog squares: pixelate content only
+      drawFogPixelated(rect, d);
     }
   }
 
   drawToken();
 }
-
-
-
 
 function drawToken() {
   const { row, col } = squareToRowCol(playerSquare);
@@ -290,7 +375,6 @@ function drawToken() {
   ctx.fillStyle = "red";
   ctx.fill();
 
-  // optional outline so it stays visible on red/pink tiles
   ctx.strokeStyle = "rgba(0,0,0,0.6)";
   ctx.lineWidth = 2;
   ctx.stroke();
