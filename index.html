@@ -166,6 +166,28 @@ function scrambleText(text, seed) {
 }
 
 /* ===============================
+   BUILD A VISIBLE SET
+=============================== */
+  function getVisibleSet() {
+  const vis = new Set();
+
+  // current
+  vis.add(playerSquare);
+
+  // ahead
+  for (let i = 1; i <= AHEAD; i++) {
+    vis.add(Math.min(100, playerSquare + i));
+  }
+
+  // behind (last N visited squares)
+  for (let i = visited.length - 1; i >= 0 && vis.size < (1 + AHEAD + TRAIL_BEHIND); i--) {
+    vis.add(visited[i]);
+  }
+
+  return vis;
+}
+
+/* ===============================
    TEXT RENDERING (supports \n)
 =============================== */
 
@@ -300,13 +322,14 @@ function draw() {
    INPUT
 =============================== */
 
-window.addEventListener("keydown", (e) => {
-  if (e.code === "Space") {
+window.addEventListener("keydown", e => {
+  if (e.key === " ") {
     e.preventDefault();
-    playerSquare = Math.min(100, playerSquare + 1);
+    recordMove(playerSquare + 1); // move 1
     draw();
   }
 });
+
 
 /* ===============================
    START
