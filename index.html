@@ -1,360 +1,177 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+<meta charset="utf-8">
+<title>Recovery Board</title>
 
-  <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #e6e6e6;
-    }
+<style>
+  body {
+    margin: 0;
+    background: #e6e6e6;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
 
-    canvas {
-      width: 90vmin;
-      height: 90vmin;
-      background: #eee;
-      border: 5px solid #000;
-      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
-    }
-  </style>
+  canvas {
+    width: 90vmin;
+    height: 90vmin;
+    background: #eee;
+    border: 6px solid black;
+  }
+</style>
 </head>
 
 <body>
 <canvas id="game"></canvas>
 
-<script type="module">
-/* ===============================
-   CORE SETUP
-=============================== */
+<script>
+/* ================= BASIC SETUP ================= */
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
-  
-const board = new Image();
-board.src = "assets/board.png";
+const SIZE = 10;
+const TILE_COUNT = 100;
 
-// Token image (fallback to red dot if not loaded yet)
+canvas.width = canvas.height = 900;
+
+let playerSquare = 1;
+let visited = [1];
+
+const boardImg = new Image();
+boardImg.src = "assets/board.png";
+
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
 
-let playerSquare = 1;
+/* ------------------ DATA ------------------ */
 
-const TRAIL_BEHIND = 6;
-const AHEAD = 1;
-let visited = [1];
+const spinners = {
+  17: { move: -3 },
+  42: { move: +5 }
+};
 
-function recordMove(toSquare) {
-  toSquare = Math.max(1, Math.min(100, toSquare));
-
-  const step = (toSquare > playerSquare) ? 1 : -1;
-  while (playerSquare !== toSquare) {
-    playerSquare += step;
-    visited.push(playerSquare);
-  }
-
-  if (visited.length > 500) visited = visited.slice(-200);
+// simple filler text for now
+const squareText = {};
+for (let i = 1; i <= 100; i++) {
+  squareText[i] = `Square ${i}`;
 }
 
-const imageCache = new Map();
-function getImage(path) {
-  if (!path) return null;
-  if (imageCache.has(path)) return imageCache.get(path);
-  const img = new Image();
-  img.src = path;
-  imageCache.set(path, img);
-  return img;
-}
-
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  const size = canvas.clientWidth;
-
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
-
-  // draw in CSS pixels
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-}
-
-/* ===============================
-   GRID MATH
-=============================== */
+/* ================= GRID HELPERS ================= */
 
 function squareToRowCol(n) {
   const index = n - 1;
   const rowFromBottom = Math.floor(index / 10);
-  const col = (rowFromBottom % 2 === 0)
-    ? (index % 10)
-    : (9 - (index % 10));
+  const col = rowFromBottom % 2 === 0 ? index % 10 : 9 - (index % 10);
   return { row: 9 - rowFromBottom, col };
 }
 
 function cellRect(row, col) {
-  const cell = canvas.clientWidth / 10;
-  return { x: col * cell, y: row * cell, w: cell, h: cell };
+  const s = canvas.width / 10;
+  return { x: col * s, y: row * s, w: s, h: s };
 }
 
-/* ===============================
-   GAME DATA (JSON)
-=============================== */
+/* ================= VISIBILITY ================= */
 
-let squareInfo = {};
-let tileBySquare = {};
-let tiles = {};
-let tileSets = {};
-
-async function loadSquares() {
-  const res = await fetch("data/squares.json?v=" + Date.now());
-  const data = await res.json();
-
-  squareInfo = data.squares || {};
-  tiles = data.tiles || {};
-  tileSets = data.tileSets || {};
-
-  const defaultName = data.defaultTile || "blue";
-  const defaultPath = tiles[defaultName];
-
-  // Default everything
-  tileBySquare = {};
-  for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
-
-  // Overrides
-  for (const colourName of Object.keys(tileSets)) {
-    const path = tiles[colourName];
-    for (const n of (tileSets[colourName] || [])) {
-      tileBySquare[n] = path;
-    }
-  }
+function getVisibleSquares() {
+  const set = new Set();
+  set.add(playerSquare);
+  set.add(playerSquare - 1);
+  set.add(playerSquare + 1);
+  return set;
 }
 
-/* ===============================
-   TILES
-=============================== */
+/* ================= DRAWING ================= */
 
-function drawTile(tilePath, r) {
-  const img = getImage(tilePath);
-  if (!img || !img.complete) return;
-
-  const pad = r.w * 0.06; // keeps hand-drawn grid visible
-  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+function drawTileBackground(r) {
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
 }
 
-/* ===============================
-   SEPSIS FOG: SCRAMBLE TEXT
-=============================== */
-
-// Deterministic scramble so each square always “looks the same”
-function scrambleText(text, seed) {
-  let s = seed * 99991;
-  const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-
-  return [...text].map(ch => {
-    if (/[a-z]/.test(ch)) return String.fromCharCode(97 + Math.floor(rand() * 26));
-    if (/[A-Z]/.test(ch)) return String.fromCharCode(65 + Math.floor(rand() * 26));
-    return ch;
-  }).join("");
-}
-
-/* ===============================
-   BUILD A VISIBLE SET
-=============================== */
-  function getVisibleSet() {
-  const vis = new Set();
-
-  // current
-  vis.add(playerSquare);
-
-  // ahead
-  for (let i = 1; i <= AHEAD; i++) {
-    vis.add(Math.min(100, playerSquare + i));
-  }
-
-  // behind (last N visited squares)
-  for (let i = visited.length - 1; i >= 0 && vis.size < (1 + AHEAD + TRAIL_BEHIND); i--) {
-    vis.add(visited[i]);
-  }
-
-  return vis;
-}
-
-/* ===============================
-   TEXT RENDERING (supports \n)
-=============================== */
-
-function drawText(text, r, alpha = 1) {
-  if (!text) return;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
+function drawText(text, r) {
   ctx.fillStyle = "#000";
+  ctx.font = "11px sans-serif";
   ctx.textAlign = "center";
-  ctx.textBaseline = "top";
+  ctx.textBaseline = "middle";
 
-  const padding = 6;
-  const maxWidth = r.w - padding * 2;
+  const words = text.split(" ");
+  let line = "";
+  let y = r.y + r.h / 2 - 10;
 
-  let fontSize = 12;
-  while (fontSize >= 6) {
-    ctx.font = `${fontSize}px system-ui`;
-
-    const lines = [];
-    const paragraphs = text.split("\n");
-
-    for (const para of paragraphs) {
-      const words = para.split(" ");
-      let line = "";
-
-      for (const w of words) {
-        const test = line ? `${line} ${w}` : w;
-        if (ctx.measureText(test).width > maxWidth) {
-          if (line) lines.push(line);
-          line = w;
-        } else {
-          line = test;
-        }
-      }
-      if (line) lines.push(line);
-
-      // paragraph break marker (small gap)
-      lines.push({ type: "gap" });
+  for (let w of words) {
+    let test = line + w + " ";
+    if (ctx.measureText(test).width > r.w - 6) {
+      ctx.fillText(line, r.x + r.w / 2, y);
+      line = w + " ";
+      y += 12;
+    } else {
+      line = test;
     }
-    if (lines.length && lines[lines.length - 1]?.type === "gap") lines.pop();
-
-    const lineH = Math.round(fontSize * 1.1);
-    const gapH = Math.round(lineH * 0.35);
-
-    const blockH = lines.reduce((h, item) => {
-      return h + (item?.type === "gap" ? gapH : lineH);
-    }, 0);
-
-    if (blockH <= r.h - padding * 2) {
-      let y = r.y + (r.h - blockH) / 2;
-      const cx = r.x + r.w / 2;
-
-      for (const item of lines) {
-        if (item?.type === "gap") { y += gapH; continue; }
-        ctx.fillText(item, cx, y);
-        y += lineH;
-      }
-
-      ctx.restore();
-      return;
-    }
-
-    fontSize--;
   }
-
-  ctx.restore();
+  ctx.fillText(line, r.x + r.w / 2, y);
 }
-
-/* ===============================
-   TOKEN
-=============================== */
 
 function drawToken() {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
 
-  const size = r.w * 0.38; // 👈 increase this for a bolder token
-  const cx = r.x + r.w * 0.8;
-  const cy = r.y + r.h * 0.2;
-
-  if (tokenImg.complete && tokenImg.naturalWidth > 0) {
-    ctx.drawImage(tokenImg, cx - size / 2, cy - size / 2, size, size);
-
-    // subtle outline so it reads on bright tiles
-    ctx.strokeStyle = "rgba(0,0,0,0.6)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
-  } else {
-    ctx.beginPath();
-    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
-    ctx.fillStyle = "red";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.6)";
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.arc(r.x + r.w * 0.8, r.y + r.h * 0.2, r.w * 0.12, 0, Math.PI * 2);
+  ctx.fillStyle = "red";
+  ctx.fill();
 }
 
-
-/* ===============================
-   MAIN DRAW
-=============================== */
+/* ================= DRAW LOOP ================= */
 
 function draw() {
-  const S = canvas.clientWidth;
-  ctx.clearRect(0, 0, S, S);
-  ctx.drawImage(board, 0, 0, S, S);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(boardImg, 0, 0, canvas.width, canvas.height);
 
-  const visible = getVisibleSet();
+  const visible = getVisibleSquares();
 
-  for (let n = 1; n <= 100; n++) {
-    const { row, col } = squareToRowCol(n);
-    const rect = cellRect(row, col);
+  for (let i = 1; i <= 100; i++) {
+    const { row, col } = squareToRowCol(i);
+    const r = cellRect(row, col);
 
-    // Always draw the tile
-    drawTile(tileBySquare[n], rect);
-
-    const entry = squareInfo[n];
-    if (!entry) continue;
-
-    if (visible.has(n)) {
-      // clear: real text, full contrast
-      drawText(entry.text, rect, 1);
+    if (visible.has(i)) {
+      drawText(squareText[i], r);
     } else {
-      // fog: scrambled text + low contrast + veil
-      drawText(scrambleText(entry.text, n), rect, 0.28);
-
-      ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.55)"; // fog strength (0.35–0.75)
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.restore();
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
     }
   }
 
   drawToken();
 }
 
+/* ================= MOVEMENT ================= */
 
-/* ===============================
-   INPUT
-=============================== */
+function movePlayer(step) {
+  playerSquare = Math.max(1, Math.min(100, playerSquare + step));
+  visited.push(playerSquare);
+
+  // Spinner check
+  if (spinners[playerSquare]) {
+    playerSquare += spinners[playerSquare].move;
+    playerSquare = Math.max(1, Math.min(100, playerSquare));
+  }
+
+  draw();
+}
+
+/* ================= INPUT ================= */
 
 window.addEventListener("keydown", e => {
   if (e.key === " ") {
     e.preventDefault();
-    recordMove(playerSquare + 1); // move 1
-    draw();
+    movePlayer(1);
   }
 });
 
+/* ================= START ================= */
 
-/* ===============================
-   START
-=============================== */
-
-async function start() {
-  resizeCanvas();
-  await loadSquares();
-  draw();
-}
-
-board.onload = start;
-board.onerror = () => { console.warn("board.png failed to load"); start(); };
-
-tokenImg.onload = () => draw(); // redraw once token image is ready
-
-window.addEventListener("resize", () => {
-  resizeCanvas();
-  draw();
-});
+boardImg.onload = () => draw();
 </script>
 </body>
 </html>
