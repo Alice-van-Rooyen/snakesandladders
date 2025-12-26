@@ -1,9 +1,3 @@
-<!--
-This file is not intended to be edited.
-All content lives in data/squares.json
--->
-
-
 <!doctype html>
 <html>
 <head>
@@ -18,7 +12,7 @@ All content lives in data/squares.json
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #e6e6e6; /* light grey */
+      background: #e6e6e6;
     }
 
     canvas {
@@ -32,445 +26,234 @@ All content lives in data/squares.json
 </head>
 
 <body>
-  <canvas id="game"></canvas>
+<canvas id="game"></canvas>
 
-  <script type="module">
-    // ===============================
-    // 1. BASIC CANVAS SETUP
-    // ===============================
+<script type="module">
+/* ===============================
+   CORE SETUP
+=============================== */
 
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-    const board = new Image();
-    board.src = "assets/board.png";
+const board = new Image();
+board.src = "assets/board.png";
 
-    let showGrid = false;
+let showGrid = false;
+let playerSquare = 1;
+let logLines = [];
+let revealed = new Set([1]);
 
-    const imageCache = new Map();
-    function getImage(path) {
-      if (!path) return null;
-      if (imageCache.has(path)) return imageCache.get(path);
+const imageCache = new Map();
 
-      const img = new Image();
-      img.src = path;
-      imageCache.set(path, img);
-      return img;
+/* ===============================
+   HELPERS
+=============================== */
+
+function getImage(path) {
+  if (!path) return null;
+  if (imageCache.has(path)) return imageCache.get(path);
+  const img = new Image();
+  img.src = path;
+  imageCache.set(path, img);
+  return img;
+}
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const size = canvas.clientWidth;
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/* ===============================
+   GAME DATA
+=============================== */
+
+let squareInfo = {};
+let tileBySquare = {};
+let spinners = {};
+
+async function loadSquares() {
+  const res = await fetch("data/squares.json");
+  const data = await res.json();
+
+  squareInfo = data.squares || {};
+  spinners   = data.spinners || {};
+
+  const defaultTile = data.tiles[data.defaultTile];
+  tileBySquare = {};
+
+  for (let i = 1; i <= 100; i++) tileBySquare[i] = defaultTile;
+
+  for (const key in data.tileSets) {
+    for (const n of data.tileSets[key]) {
+      tileBySquare[n] = data.tiles[key];
     }
+  }
+}
 
-    window.addEventListener("keydown", (e) => {
+/* ===============================
+   GRID MATH
+=============================== */
 
-      if (e.key.toLowerCase() === "g") {
-        showGrid = !showGrid;
-        draw();
-        return;
-      }
+function squareToRowCol(n) {
+  const index = n - 1;
+  const rowFromBottom = Math.floor(index / 10);
+  const col = (rowFromBottom % 2 === 0)
+    ? index % 10
+    : 9 - (index % 10);
+  return { row: 9 - rowFromBottom, col };
+}
 
-      if (e.code === "Space") {
-        e.preventDefault();
-        playerSquare = Math.min(100, playerSquare + 1);
-        applySpinner();
-        draw();
-      }
-    });
+function cellRect(row, col) {
+  const size = canvas.clientWidth / 10;
+  return { x: col * size, y: row * size, w: size, h: size };
+}
 
+/* ===============================
+   TEXT RENDERING
+=============================== */
 
-    function resizeCanvas() {
-      const dpr = window.devicePixelRatio || 1;
-      const cssSize = canvas.clientWidth;
-
-      canvas.width = Math.round(cssSize * dpr);
-      canvas.height = Math.round(cssSize * dpr);
-
-      // Draw in CSS pixels (0..cssSize), not device pixels
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    // ===============================
-    // SPINNER STATE
-    // ===============================
-    let playerSquare = 1;
-    let spinners = {};
-    let logLines = [];
-    let busy = false;
-
-    function log(msg) {
-      logLines.unshift(msg);
-      logLines = logLines.slice(0, 6);
-    }
-
-    // ===============================
-    // 2. LOAD THE JSON
-    // ===============================
-
-    let squareInfo = {};      // per-square text/icon
-    let tileBySquare = {};    // per-square tile image path
-    let tilePaths = {};       // name -> path (from JSON)
-
-    async function loadSquares() {
-      const res = await fetch("data/squares.json?v=" + Date.now());
-      const data = await res.json();
-
-      tilePaths = data.tiles || {};
-      squareInfo = data.squares || {};
-      spinners = data.spinners || {};
-
-      const defaultName = data.defaultTile;
-      const defaultPath = tilePaths[defaultName];
-
-      // Default everything
-      tileBySquare = {};
-      for (let n = 1; n <= 100; n++) {
-        tileBySquare[n] = defaultPath;
-      }
-
-      // Override sets
-      const sets = data.tileSets || {};
-      for (const colourName of Object.keys(sets)) {
-        const path = tilePaths[colourName];
-        const list = sets[colourName] || [];
-        for (const n of list) {
-          tileBySquare[n] = path;
-        }
-      }
-    }
-
-    // ===============================
-    // 3. SQUARE → ROW/COLUMN
-    // ===============================
-
-    function squareToRowCol(n) {
-      const index = n - 1;
-      const rowFromBottom = Math.floor(index / 10);
-      const colInRow = index % 10;
-
-      const row = 9 - rowFromBottom;
-      const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
-
-      return { row, col };
-    }
-
-    function cellRect(row, col) {
-      const S = canvas.clientWidth;
-      const cell = S / 10;
-
-      return { x: col * cell, y: row * cell, w: cell, h: cell };
-    }
-
-    // ===============================
-    // 4. INLINE TEXT STYLES
-    // ===============================
-
-    // Supports:
-    // **bold**
-    // *italic*
-    function parseStyledLine(line) {
-      const parts = [];
-      let i = 0;
-
-      while (i < line.length) {
-        // bold **text**
-        if (line.startsWith("**", i)) {
-          const end = line.indexOf("**", i + 2);
-          if (end !== -1) {
-            parts.push({ text: line.slice(i + 2, end), style: "bold" });
-            i = end + 2;
-            continue;
-          }
-        }
-
-        // italic *text*
-        if (line.startsWith("*", i)) {
-          const end = line.indexOf("*", i + 1);
-          if (end !== -1) {
-            parts.push({ text: line.slice(i + 1, end), style: "italic" });
-            i = end + 1;
-            continue;
-          }
-        }
-
-        // normal chunk until next marker
-        let next = line.length;
-        const b = line.indexOf("**", i);
-        const it = line.indexOf("*", i);
-        if (b !== -1) next = Math.min(next, b);
-        if (it !== -1) next = Math.min(next, it);
-
-        parts.push({ text: line.slice(i, next), style: "normal" });
-        i = next;
-      }
-
-      return parts;
-    }
-
-    // ===============================
-    // SPINNER + GAME STATE
-    // ===============================
-
-    let spinners = {};         // loaded from JSON
-    let playerSquare = 1;      // current position
-    let busy = false;          // prevents double-triggers
-    let logLines = [];         // tiny debug feed
-
-    function log(msg) {
-      logLines.unshift(msg);
-      logLines = logLines.slice(0, 6);
-    }
-    
-    // ===============================
-    // 5. DRAW TEXT IN A SQUARE
-    // ===============================
-
-    function drawText(text, r) {
+function drawText(text, r) {
   if (!text) return;
 
   const padding = 6;
-  const paragraphGap = 0.3; // 0.3–0.6 feels good
   const maxWidth = r.w - padding * 2;
-
   let fontSize = 12;
-  const minFont = 6;
 
-  ctx.fillStyle = "#000";
-  ctx.textBaseline = "top";
-
-  while (fontSize >= minFont) {
-    // Wrap measurements use normal font
+  while (fontSize >= 6) {
     ctx.font = `${fontSize}px system-ui`;
 
-    // Build wrapped lines, respecting manual \n breaks
-    const paragraphs = text.split("\n");
-    const lines = [];
+    const words = text.split(" ");
+    let lines = [];
+    let line = "";
 
-    for (const para of paragraphs) {
-      const words = para.split(" ");
-      let line = "";
-
-      for (const word of words) {
-        const test = line ? `${line} ${word}` : word;
-        if (ctx.measureText(test).width > maxWidth) {
-          if (line) lines.push(line);
-          line = word;
-        } else {
-          line = test;
-        }
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
       }
-      if (line) lines.push(line);
-
-      // add a small paragraph gap marker
-      lines.push({ type: "gap" });
     }
+    if (line) lines.push(line);
 
-    // Remove the final gap marker
-    if (lines.length && lines[lines.length - 1]?.type === "gap") lines.pop();
+    const height = lines.length * fontSize;
+    if (height <= r.h - 10) {
+      const startY = r.y + (r.h - height) / 2;
+      const cx = r.x + r.w / 2;
 
-    const lineHeight = Math.round(fontSize * 1.1);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
 
-    const blockHeight = lines.reduce((h, item) => {
-      return h + (item?.type === "gap" ? lineHeight * paragraphGap : lineHeight);
-    }, 0);
-
-    if (blockHeight <= r.h - padding * 2) {
-      const startY = r.y + (r.h - blockHeight) / 2;
-      const centerX = r.x + r.w / 2;
-
-      let cursorY = startY;
-
-      lines.forEach(item => {
-        if (item?.type === "gap") {
-          cursorY += lineHeight * paragraphGap;
-          return;
-        }
-
-        const ln = item;
-        const y = cursorY;
-
-        const parts = parseStyledLine(ln);
-
-        // Measure total width across styled segments
-        let totalWidth = 0;
-        parts.forEach(p => {
-          ctx.font =
-            p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-            p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                                   `${fontSize}px system-ui`;
-          totalWidth += ctx.measureText(p.text).width;
-        });
-
-        // Draw left-to-right from left anchor, centered overall
-        let x = centerX - totalWidth / 2;
-        ctx.textAlign = "left";
-
-        parts.forEach(p => {
-          ctx.font =
-            p.style === "bold"   ? `bold ${fontSize}px system-ui` :
-            p.style === "italic" ? `italic ${fontSize}px system-ui` :
-                                   `${fontSize}px system-ui`;
-
-          ctx.fillText(p.text, x, y);
-          x += ctx.measureText(p.text).width;
-        });
-
-        ctx.textAlign = "center";
-        cursorY += lineHeight;
+      lines.forEach((l, i) => {
+        ctx.fillText(l, cx, startY + i * fontSize);
       });
-
       return;
     }
 
     fontSize--;
   }
-
-  // Fallback: always show something
-  ctx.font = `${minFont}px system-ui`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("…", r.x + r.w / 2, r.y + r.h / 2);
-
-  // restore
-  ctx.textBaseline = "top";
 }
 
-    // ===============================
-    // 6.APPLY SPINNER
-    // ===============================
-    function applySpinner() {
-      const spinner = spinners[playerSquare];
-      if (!spinner) return;
+/* ===============================
+   DRAWING
+=============================== */
 
-    const options = spinner.choices || [];
-      if (!options.length) return;
+function drawTile(tilePath, r) {
+  const img = getImage(tilePath);
+  if (!img || !img.complete) return;
 
-    const pick = options[Math.floor(Math.random() * options.length)];
+  const pad = r.w * 0.06;
+  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+}
 
-    if (pick.move !== undefined) {
-    playerSquare += pick.move;
-    log(`Spinner: ${pick.move > 0 ? "+" : ""}${pick.move}`);
-  } else if (pick.to !== undefined) {
-    playerSquare = pick.to;
-    log(`Jump to ${pick.to}`);
+function drawFog(r) {
+  // Fog strength: raise/lower the last number (0.0–1.0)
+  ctx.fillStyle = "rgba(255,255,255,0.78)";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+
+  // Optional: subtle vignette edge so it feels less flat
+  ctx.strokeStyle = "rgba(0,0,0,0.08)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+}
+
+function draw() {
+  const S = canvas.clientWidth;
+  ctx.clearRect(0, 0, S, S);
+  ctx.drawImage(board, 0, 0, S, S);
+
+  for (let n = 1; n <= 100; n++) {
+    const { row, col } = squareToRowCol(n);
+    const rect = cellRect(row, col);
+
+    // 1) draw tile
+    drawTile(tileBySquare[n], rect);
+
+    // 2) fog if not revealed
+    if (!revealed.has(n)) {
+      drawFog(rect);
+      continue; // don't draw text underneath fog
+    }
+
+    // 3) draw text (revealed squares only)
+    if (squareInfo[n]) drawText(squareInfo[n].text, rect);
   }
+
+  drawToken();
 }
 
-
-    // ===============================
-    // 6. DRAW GRID (DEBUG)
-    // ===============================
-
-    function drawGridOverlay() {
-      const S = canvas.clientWidth;
-      const cell = S / 10;
-
-      ctx.strokeStyle = "red";
-      ctx.lineWidth = 3;
-
-      for (let i = 0; i <= 10; i++) {
-        const x = i * cell;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, S);
-        ctx.stroke();
-      }
-
-      for (let i = 0; i <= 10; i++) {
-        const y = i * cell;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(S, y);
-        ctx.stroke();
-      }
-    }
-
-    // ===============================
-    // 7. DRAW TILES
-    // ===============================
-
-    function drawTile(tilePath, r) {
-      const img = getImage(tilePath);
-      if (!img || !img.complete) return;
-
-      const pad = Math.max(2, r.w * 0.06); // gutter to keep hand-drawn grid visible
-      ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
-    }
-
-    // ===============================
-    // 8. MAIN DRAW
-    // ===============================
-
-    function draw() {
-      const S = canvas.clientWidth;
-      ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(board, 0, 0, S, S);
-
-      for (let n = 1; n <= 100; n++) {
-        const entry = squareInfo[n];
-        const { row, col } = squareToRowCol(n);
-        const rect = cellRect(row, col);
-
-        drawTile(tileBySquare[n], rect);
-        if (entry) drawText(entry.text, rect);
-      }
-
-      if (showGrid) drawGridOverlay();
-    }
-
-
-    // ===============================
-    // 8. DRAW TOKEN
-    // ===============================
-
-    function drawToken() {
+function drawToken() {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
 
   ctx.beginPath();
-  ctx.arc(r.x + r.w * 0.85, r.y + r.h * 0.15, r.w * 0.08, 0, Math.PI * 2);
+  ctx.arc(r.x + r.w * 0.8, r.y + r.h * 0.2, r.w * 0.08, 0, Math.PI * 2);
   ctx.fillStyle = "red";
   ctx.fill();
-}
 
-    // ===============================
-    // 8. DRAW LOG
-    // ===============================
-function drawLog() {
-  const w = 260;
-  const h = 100;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  ctx.fillRect(10, 10, w, h);
-
-  ctx.fillStyle = "#000";
-  ctx.font = "12px system-ui";
-  ctx.textBaseline = "top";
-
-  logLines.forEach((line, i) => {
-    ctx.fillText(line, 16, 16 + i * 14);
-  });
+  // optional outline so it stays visible on red/pink tiles
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
 
-    
-    // ===============================
-    // 9. START
-    // ===============================
+/* ===============================
+   INPUT
+=============================== */
 
-    async function start() {
-      resizeCanvas();
+window.addEventListener("keydown", e => {
+  if (e.key === " ") {
+    e.preventDefault();
 
-      try {
-        await loadSquares();
-      } catch (err) {
-        console.error("loadSquares failed:", err);
-      }
+    playerSquare = Math.min(100, playerSquare + 1);
+    revealed.add(playerSquare);   
 
-      draw();
-    }
+    draw();
+  }
+});
 
-    board.onload = start;
 
-    window.addEventListener("resize", () => {
-      resizeCanvas();
-      draw();
-    });
-  </script>
+/* ===============================
+   INITIALISE
+=============================== */
+
+async function start() {
+  resizeCanvas();
+  await loadSquares();
+  draw();
+}
+
+board.onload = start;
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  draw();
+});
+</script>
 </body>
 </html>
