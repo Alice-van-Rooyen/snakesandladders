@@ -45,6 +45,26 @@ tokenImg.src = "assets/token.png";
 
 let playerSquare = 1;
 
+const TRAIL_BEHIND = 6; // how many past squares to keep readable
+const AHEAD = 1;        // how many future squares to preview
+
+let visited = [1];      // movement history (path order)
+
+function recordMove(toSquare) {
+  // Clamp to board
+  toSquare = Math.max(1, Math.min(100, toSquare));
+
+  // If you want every *intermediate* square recorded (nice for moves like +5 / -3):
+  const step = (toSquare > playerSquare) ? 1 : -1;
+  while (playerSquare !== toSquare) {
+    playerSquare += step;
+    visited.push(playerSquare);
+  }
+
+  // Keep history from growing forever (optional)
+  if (visited.length > 500) visited = visited.slice(-200);
+}
+
 const imageCache = new Map();
 function getImage(path) {
   if (!path) return null;
@@ -161,6 +181,29 @@ function scrambleText(text, seed) {
 }
 
 /* ===============================
+   GET VISIBLE SET
+=============================== */
+
+  function getVisibleSet() {
+  const vis = new Set();
+
+  // current
+  vis.add(playerSquare);
+
+  // ahead
+  for (let i = 1; i <= AHEAD; i++) {
+    vis.add(Math.min(100, playerSquare + i));
+  }
+
+  // behind (last N visited squares)
+  for (let i = visited.length - 1; i >= 0 && vis.size < (1 + AHEAD + TRAIL_BEHIND); i--) {
+    vis.add(visited[i]);
+  }
+
+  return vis;
+}
+
+/* ===============================
    TEXT RENDERING (supports \n)
 =============================== */
 
@@ -266,44 +309,43 @@ function drawToken() {
 
 function draw() {
   const S = canvas.clientWidth;
-
   ctx.clearRect(0, 0, S, S);
-  if (board.complete) ctx.drawImage(board, 0, 0, S, S);
+  ctx.drawImage(board, 0, 0, S, S);
+
+  const visible = getVisibleSet();
 
   for (let n = 1; n <= 100; n++) {
     const { row, col } = squareToRowCol(n);
-    const r = cellRect(row, col);
+    const rect = cellRect(row, col);
 
-    // 1) tile
-    drawTile(tileBySquare[n], r);
+    drawTile(tileBySquare[n], rect);
 
-    // 2) text: real near you, scrambled far away
-    const t = squareInfo[n]?.text;
-    if (!t) continue;
+    const entry = squareInfo[n];
+    if (!entry) continue;
 
-    if (isVisible(n, playerSquare)) {
-      drawText(t, r, 1);
+    if (visible.has(n)) {
+      drawText(entry.text, rect);          // real text
     } else {
-      drawText(scrambleText(t, n), r, 0.30);
-      ctx.fillStyle = "rgba(255,255,255,0.18)";
-      ctx.fillRect(r.x, r.y, r.w, r.h);
+      drawText(cipher(entry.text), rect);  // scrambled text
     }
   }
 
   drawToken();
 }
 
+
 /* ===============================
    INPUT
 =============================== */
 
-window.addEventListener("keydown", (e) => {
-  if (e.code === "Space") {
+window.addEventListener("keydown", e => {
+  if (e.key === " ") {
     e.preventDefault();
-    playerSquare = Math.min(100, playerSquare + 1);
+    recordMove(playerSquare + 1); // move 1
     draw();
   }
 });
+
 
 /* ===============================
    START
