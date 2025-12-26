@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Alice is not foggy</title>
+  <title>Alice is irritated</title>
 
   <style>
     body {
@@ -348,19 +348,19 @@ function draw() {
     if (!entry || !entry.text) continue;
 
     if (visible.has(n)) {
-  drawText(entry.text, rect); // readable
-} else {
-  const a = fogAlphaForSquare(n);
-  drawText(scrambleText(entry.text, n), rect, a); // fog gradient
+      drawText(entry.text, rect); // readable
+    } else {
+      const a = fogAlphaForSquare(n);
+      drawText(scrambleText(entry.text, n), rect, a); // fog gradient
 
-  // OPTIONAL: veil overlay (comment out if you don’t like it)
-  ctx.save();
-  ctx.globalAlpha = fogVeilForSquare(n);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.restore();
-}
-
+      // OPTIONAL: veil overlay
+      ctx.save();
+      ctx.globalAlpha = fogVeilForSquare(n);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+    }
+  }
 
   drawToken();
 }
