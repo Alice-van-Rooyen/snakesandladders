@@ -35,6 +35,8 @@
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const contentLayer = document.createElement("canvas");
+const contentCtx = contentLayer.getContext("2d");
 
 const board = new Image();
 board.src = "assets/board.png";
@@ -61,10 +63,21 @@ function getImage(path) {
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const size = canvas.clientWidth;
+
   canvas.width = size * dpr;
   canvas.height = size * dpr;
+
+  contentLayer.width = size * dpr;
+  contentLayer.height = size * dpr;
+
+  // draw in CSS pixels
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  contentCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ctx.imageSmoothingEnabled = false;
+  contentCtx.imageSmoothingEnabled = false;
 }
+
 
 function distance(a, b) {
   const ra = squareToRowCol(a);
@@ -216,6 +229,24 @@ function drawFog(r, distance) {
   ctx.fillRect(r.x, r.y, r.w, r.h);
 }
 
+function drawContentLayer() {
+  const S = canvas.clientWidth;
+  contentCtx.clearRect(0, 0, S, S);
+
+  for (let n = 1; n <= 100; n++) {
+    const { row, col } = squareToRowCol(n);
+    const rect = cellRect(row, col);
+
+    // tile
+    drawTileTo(contentCtx, tileBySquare[n], rect);
+
+    // text
+    if (squareInfo[n]) drawTextTo(contentCtx, squareInfo[n].text, rect);
+
+    // spinner icon (if any)
+    if (spinners[n]) drawSpinnerIconTo(contentCtx, rect);
+  }
+}
 
 
 function draw() {
