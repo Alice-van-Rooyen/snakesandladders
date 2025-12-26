@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+  <title>alice is a grouch</title>
 
   <style>
     body {
@@ -70,18 +70,25 @@ let spinnerSquares = new Set();
 let rafId = null;
 let inputLocked = false;
 
-// Spin (on landing) state
+// Spin (on landing) state (used for both spinners + “hospital pull”)
 let spinActive = false;
 let spinSquare = null;
 let spinStartT = 0;
 let spinDurationMs = 700;
 let pendingJumpTo = null;
 
+// “Hospital pull” (occasional snap-back to square 1)
+const HOSPITAL_PULL_CHANCE = 0.03; // 3% chance on each landing (tweak to taste)
+let lastSafeSquare = 1;            // last non-1 square you were on before a pull
+let recallSquare = null;           // can attempt to return to this
+let recallExpiresAt = 0;           // memory window (ms epoch from performance.now)
+const RECALL_WINDOW_MS = 6000;     // “if you can remember it”
+
 // Tether “string” dynamics
 let stringJolt = 0;      // rises on movement, decays over time
 
-// String styling (lighter + thinner + more “string-like”)
-const STRING_COLOR = "rgba(184, 38, 60, 0.55)"; // a soft red string
+// String styling (lighter + thinner + string-like)
+const STRING_COLOR = "rgba(184, 38, 60, 0.55)"; // soft red string
 const STRING_KNOT_COLOR = "rgba(184, 38, 60, 0.85)";
 
 // Image cache
@@ -128,6 +135,18 @@ function cellRect(row, col) {
   const S = canvas.clientWidth;
   const cell = S / 10;
   return { x: col * cell, y: row * cell, w: cell, h: cell };
+}
+
+function squareCornerAnchor(n, corner /* "br" | "bl" */) {
+  const { row, col } = squareToRowCol(n);
+  const r = cellRect(row, col);
+  const pad = r.w * 0.10;
+
+  if (corner === "bl") {
+    return { x: r.x + pad, y: r.y + r.h - pad, r };
+  }
+  // default "br"
+  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r };
 }
 
 function squareCenter(n) {
@@ -222,7 +241,7 @@ function preloadImages(paths) {
     if (!img) return resolve();
     if (img.complete && img.naturalWidth > 0) return resolve();
     img.onload = () => resolve();
-    img.onerror = () => resolve(); // don’t block everything on one missing tile
+    img.onerror = () => resolve();
   }));
   return Promise.all(promises);
 }
@@ -252,13 +271,10 @@ function scrambleText(text, seed) {
 
 function fogAlphaForSquare(n) {
   const d = Math.abs(n - playerSquare);
-
   const near = 0.55;
   const far  = 0.92;
-
   const start = 2;
   const end   = 20;
-
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
@@ -269,7 +285,6 @@ function fogVeilForSquare(n) {
   const far  = 0.22;
   const start = 2;
   const end   = 20;
-
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
@@ -313,7 +328,6 @@ function drawText(text, r, alpha = 1) {
 
     const lineH = Math.round(fontSize * 1.1);
     const gapH  = Math.round(lineH * 0.35);
-
     const blockH = lines.reduce((h, item) => h + (item?.type === "gap" ? gapH : lineH), 0);
 
     if (blockH <= r.h - padding * 2) {
@@ -377,14 +391,14 @@ function getVisibleSet() {
    PACK B — TETHER STRING
 =============================== */
 function drawTetherString(t) {
-  const a = squareCenter(1);
+  // Pin is now ALSO bottom-right of square 1 (to match token corner logic)
+  const a = squareCornerAnchor(1, "br");
   const b = tokenAnchor(t);
 
   const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
   const segs = 14;
 
   ctx.save();
-  // thinner + lighter
   ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0028);
   ctx.strokeStyle = STRING_COLOR;
   ctx.lineCap = "round";
@@ -418,7 +432,7 @@ function drawTetherString(t) {
 
   ctx.stroke();
 
-  // Small “knot” at square 1
+  // Small “knot” at square 1 (now on the same bottom-right anchor)
   ctx.fillStyle = STRING_KNOT_COLOR;
   ctx.beginPath();
   ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
@@ -452,8 +466,6 @@ function drawSpinnerHint(n, rect, visible) {
 // Better-than-Math.random when available (still lightweight)
 function randInt(maxExclusive) {
   if (maxExclusive <= 1) return 0;
-
-  // crypto is available on modern browsers + GitHub Pages
   const c = globalThis.crypto;
   if (c && c.getRandomValues) {
     const buf = new Uint32Array(1);
@@ -466,10 +478,70 @@ function randInt(maxExclusive) {
 function chooseSpinnerDestination(fromSquare) {
   const options = spinnerMap[fromSquare];
   if (!options || options.length === 0) return null;
-  const idx = randInt(options.length);
-  return options[idx];
+  return options[randInt(options.length)];
 }
 
+/* ===============================
+   HOSPITAL PULL + RECALL
+=============================== */
+function hospitalPullMaybe(tNow) {
+  // Only trigger a pull if you’re not already at 1, and not mid-spin.
+  if (spinActive) return false;
+  if (playerSquare === 1) return false;
+
+  // Roll the dice
+  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
+
+  // Store where you were (the “previous square”) and allow recall briefly
+  lastSafeSquare = playerSquare;
+  recallSquare = lastSafeSquare;
+  recallExpiresAt = tNow + RECALL_WINDOW_MS;
+
+  // Start a “spin” at the current square, but the destination is hospital (1)
+  spinActive = true;
+  spinSquare = playerSquare;
+  spinStartT = tNow;
+  pendingJumpTo = 1;
+  inputLocked = true;
+
+  // tug the string
+  stringJolt = Math.min(1.2, stringJolt + 0.55);
+
+  return true;
+}
+
+function canRecall(tNow) {
+  if (!recallSquare) return false;
+  if (tNow > recallExpiresAt) return false;
+
+  // “If you can remember it” → you can only recall if it’s still in your visible window.
+  // This ties recall to the breadcrumb trail rather than perfect memory.
+  const vis = getVisibleSet();
+  return vis.has(recallSquare);
+}
+
+function attemptRecall(tNow) {
+  if (inputLocked) return;
+  if (playerSquare !== 1) return;
+  if (!canRecall(tNow)) return;
+
+  const target = recallSquare;
+
+  // one-shot: once you’ve recalled, it’s gone
+  recallSquare = null;
+  recallExpiresAt = 0;
+
+  // move back out (still step-recorded)
+  recordMove(target);
+  stringJolt = Math.min(1.0, stringJolt + 0.35);
+
+  // If the target is a spinner, it can still mess with you.
+  startSpinIfNeeded(playerSquare);
+}
+
+/* ===============================
+   SPIN LOGIC (spinners + hospital pull)
+=============================== */
 function startSpinIfNeeded(fromSquare) {
   if (!isSpinnerSquare(fromSquare)) return false;
 
@@ -493,7 +565,6 @@ function drawSpinnerOverSquare(n, t) {
   const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
   const rot = (t - spinStartT) * 0.018;
 
-  // subtle “flash” behind spinner
   ctx.save();
   ctx.globalAlpha = 0.18;
   ctx.fillStyle = "#fff";
@@ -526,12 +597,12 @@ function updateSpin(t) {
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
-  // Metaphor choice:
-  // - we still “move” in recorded steps between squares even though the jump is not chosen
   recordMove(to);
+
+  // extra jolt after a jump/pull
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
-  // Allow chain spinners if you land on another spinner
+  // If you land on a spinner square, allow chain spinners
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
   }
@@ -541,13 +612,11 @@ function updateSpin(t) {
    TOKEN (bottom-right)
 =============================== */
 function tokenAnchor(t) {
-  const { row, col } = squareToRowCol(playerSquare);
-  const r = cellRect(row, col);
-
-  // Bottom-right inside the square, with padding
-  const pad = r.w * 0.10;
-  let cx = r.x + r.w - pad;
-  let cy = r.y + r.h - pad;
+  // token is bottom-right of current square
+  const a = squareCornerAnchor(playerSquare, "br");
+  let cx = a.x;
+  let cy = a.y;
+  const r = a.r;
 
   // Wiggle while spinning
   if (spinActive) {
@@ -625,46 +694,75 @@ function draw(t) {
 
   drawTetherString(t);
   drawToken(t);
+
+  // tiny hint if recall is possible (only while at hospital)
+  // kept subtle: a small “↩” near the knot when available
+  if (playerSquare === 1 && canRecall(t)) {
+    const pin = squareCornerAnchor(1, "br");
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = `${Math.max(11, Math.round(pin.r.w * 0.18))}px system-ui`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("↩ R", pin.x - pin.r.w * 0.08, pin.y - pin.r.w * 0.02);
+    ctx.restore();
+  }
 }
 
 /* ===============================
    MOVEMENT (1 square at a time)
 =============================== */
-function attemptStep(delta) {
+function attemptStep(delta, tNow) {
   if (inputLocked) return;
 
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
 
+  // track last non-1 place (so “previous square” is meaningful)
+  if (playerSquare !== 1) lastSafeSquare = playerSquare;
+
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // if we landed on a spinner square, spin then jump (random destination)
-  startSpinIfNeeded(playerSquare);
+  // If we landed on a spinner square, spin then jump (random destination)
+  if (startSpinIfNeeded(playerSquare)) return;
+
+  // Otherwise, occasionally: hospital pull
+  hospitalPullMaybe(tNow);
 }
 
 /* ===============================
-   INPUT (arrow keys + space)
+   INPUT (arrow keys + space + R recall)
 =============================== */
 document.addEventListener("keydown", (e) => {
-  const code = e.code || "";
-  const key = e.key || "";
+  const tNow = performance.now();
 
-  const isSpace = (code === "Space") || (key === " ") || (key === "Spacebar");
+  const code = e.code || "";
+  const key = (e.key || "").toLowerCase();
+
+  const isSpace = (code === "Space") || (e.key === " ") || (e.key === "Spacebar");
   const isForward =
     (code === "ArrowRight") || (code === "ArrowUp") ||
-    (key === "ArrowRight") || (key === "ArrowUp");
+    (e.key === "ArrowRight") || (e.key === "ArrowUp");
 
   const isBack =
     (code === "ArrowLeft") || (code === "ArrowDown") ||
-    (key === "ArrowLeft") || (key === "ArrowDown");
+    (e.key === "ArrowLeft") || (e.key === "ArrowDown");
 
-  if (!(isSpace || isForward || isBack)) return;
+  const isRecall = (key === "r");
+
+  if (!(isSpace || isForward || isBack || isRecall)) return;
 
   e.preventDefault();
 
-  if (isBack) attemptStep(-1);
-  else attemptStep(+1);
+  if (isRecall) {
+    attemptRecall(tNow);
+    return;
+  }
+
+  if (isBack) attemptStep(-1, tNow);
+  else attemptStep(+1, tNow);
 });
 
 /* ===============================
