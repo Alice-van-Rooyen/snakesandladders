@@ -21,6 +21,7 @@
       background: #fff;
       border: 5px solid #000;
       box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+      touch-action: manipulation;
     }
   </style>
 </head>
@@ -53,6 +54,28 @@ let squareInfo = {};     // { "1": {text, icon}, ... }
 let tiles = {};          // { blue: "assets/tiles/blue.png", ... }
 let tileSets = {};       // { pink: [..], ... }
 let tileBySquare = {};   // { 1: "assets/tiles/blue.png", ... }
+
+// Snakes & ladders jumps
+// Expected data/jumps.json format (if present):
+// { "jumps": { "4": 14, "17": 7, ... } }
+let jumps = {};          // { 4: 14, ... } (numbers)
+let jumpFromSet = new Set();
+
+// Animation / interaction state
+let rafId = null;
+let lastT = 0;
+
+let inputLocked = false;
+
+// Spin (on landing) state
+let spinActive = false;
+let spinSquare = null;
+let spinStartT = 0;
+let spinDurationMs = 700;
+let pendingJumpTo = null;
+
+// Tether “string” dynamics
+let stringJolt = 0;      // rises on movement, decays over time
 
 // Image cache
 const imageCache = new Map();
@@ -100,6 +123,12 @@ function cellRect(row, col) {
   return { x: col * cell, y: row * cell, w: cell, h: cell };
 }
 
+function squareCenter(n) {
+  const { row, col } = squareToRowCol(n);
+  const r = cellRect(row, col);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2, r };
+}
+
 /* ===============================
    JSON LOADING
 =============================== */
@@ -129,6 +158,32 @@ async function loadSquares() {
   // Preload the unique tile images so we don’t get “only 3 squares”
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
+}
+
+async function loadJumps() {
+  // Optional file. If absent, game still runs with no jumps.
+  try {
+    const res = await fetch("data/jumps.json?v=" + Date.now());
+    if (!res.ok) throw new Error("jumps.json not ok");
+    const data = await res.json();
+
+    const raw = data.jumps || {};
+    jumps = {};
+    jumpFromSet = new Set();
+
+    for (const [k, v] of Object.entries(raw)) {
+      const from = Number(k);
+      const to = Number(v);
+      if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+      if (from < 1 || from > 100 || to < 1 || to > 100) continue;
+      if (from === to) continue;
+      jumps[from] = to;
+      jumpFromSet.add(from);
+    }
+  } catch (err) {
+    jumps = {};
+    jumpFromSet = new Set();
+  }
 }
 
 function preloadImages(paths) {
@@ -174,8 +229,6 @@ function fogAlphaForSquare(n) {
   const far  = 0.92; // opacity for very far squares
 
   // Start fogging only beyond your “visible” window:
-  // If you show current + ahead 1 + behind trail, keep using your visible Set for truth.
-  // This gradient is for the NOT-visible squares only.
   const start = 2;   // distance where fog begins
   const end   = 20;  // distance where fog reaches "far"
 
@@ -195,7 +248,6 @@ function fogVeilForSquare(n) {
   return near + (far - near) * t;
 }
 
-  
 function drawText(text, r, alpha = 1) {
   if (!text) return;
 
@@ -295,15 +347,184 @@ function getVisibleSet() {
 }
 
 /* ===============================
+   PACK B — TETHER STRING
+=============================== */
+function drawTetherString(t) {
+  const a = squareCenter(1);
+  const b = tokenAnchor(t);
+
+  // “Jolt” rises with movement, decays over time (handled in tick)
+  const wobbleAmp = (canvas.clientWidth / 10) * 0.10 * (0.25 + stringJolt); // cell-based scaling
+  const segs = 14;
+
+  ctx.save();
+  ctx.lineWidth = Math.max(2, canvas.clientWidth * 0.006);
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+
+  // Perpendicular unit vector for sideways wobble
+  const px = -dy / len;
+  const py = dx / len;
+
+  // Frequency shifts slightly with distance and time
+  const baseFreq = 6 + Math.min(10, len / 120);
+  const phase = (t * 0.004) + (len * 0.002);
+
+  for (let i = 1; i <= segs; i++) {
+    const u = i / segs;
+    // ease-in/out so ends feel “tied”
+    const ease = Math.sin(Math.PI * u);
+
+    const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+    const wy = py * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+
+    const x = a.x + dx * u + wx;
+    const y = a.y + dy * u + wy;
+
+    ctx.lineTo(x, y);
+  }
+
+  ctx.stroke();
+
+  // Small “knot” at square 1
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, Math.max(2.5, canvas.clientWidth * 0.008), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/* ===============================
+   PACK A — SPINNABLE SNAKES & LADDERS
+=============================== */
+function isJumpSquare(n) {
+  return !!jumps[n];
+}
+
+function jumpDirectionGlyph(from, to) {
+  // simple, asset-free cue
+  return (to > from) ? "↗" : "↘";
+}
+
+function drawJumpHint(n, rect, visible) {
+  if (!jumpFromSet.has(n)) return;
+  if (!visible) return;
+
+  const to = jumps[n];
+  const glyph = jumpDirectionGlyph(n, to);
+
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.font = `${Math.max(10, Math.round(rect.w * 0.18))}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  ctx.fillText(glyph, rect.x + rect.w - rect.w * 0.08, rect.y + rect.h * 0.08);
+  ctx.restore();
+}
+
+function startSpinIfNeeded(fromSquare) {
+  const to = jumps[fromSquare];
+  if (!to) return false;
+
+  spinActive = true;
+  spinSquare = fromSquare;
+  spinStartT = performance.now();
+  pendingJumpTo = to;
+  inputLocked = true;
+  return true;
+}
+
+function drawSpinnerOverSquare(n, t) {
+  if (!spinActive || spinSquare !== n) return;
+
+  const { x, y, r } = squareCenter(n);
+  const radius = r.w * 0.22;
+
+  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+  const rot = (t - spinStartT) * 0.018; // rotation speed
+
+  // subtle “flash” behind spinner
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  ctx.lineWidth = Math.max(2, r.w * 0.05);
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineCap = "round";
+
+  // arc length tightens as spin completes
+  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, arcSpan);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function updateSpin(t) {
+  if (!spinActive) return;
+
+  const elapsed = t - spinStartT;
+  if (elapsed < spinDurationMs) return;
+
+  // apply the jump
+  spinActive = false;
+  const to = pendingJumpTo;
+  pendingJumpTo = null;
+
+  // Important: we “teleport” after the spin, but we still record path steps between squares
+  // (metaphor: you *do* move, but it isn’t linear or chosen).
+  recordMove(to);
+
+  // a bit more jolt after a jump
+  stringJolt = Math.min(1.2, stringJolt + 0.45);
+
+  // If chain jumps exist, allow them (rare but possible)
+  if (!startSpinIfNeeded(playerSquare)) {
+    inputLocked = false;
+  }
+}
+
+/* ===============================
    TOKEN
 =============================== */
-function drawToken() {
+function tokenAnchor(t) {
   const { row, col } = squareToRowCol(playerSquare);
   const r = cellRect(row, col);
 
-  const cx = r.x + r.w * 0.8;
-  const cy = r.y + r.h * 0.2;
+  // Base token position within the cell
+  let cx = r.x + r.w * 0.8;
+  let cy = r.y + r.h * 0.2;
 
+  // Wiggle while spinning (a little “uncertainty”)
+  if (spinActive) {
+    const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+    const amp = r.w * 0.06 * (1 - p);
+    cx += Math.sin((t - spinStartT) * 0.05) * amp;
+    cy += Math.cos((t - spinStartT) * 0.06) * amp;
+  }
+
+  return { x: cx, y: cy, r };
+}
+
+function drawToken(t) {
+  const { x: cx, y: cy, r } = tokenAnchor(t);
   const size = r.w * 0.45; // bigger token
 
   if (tokenImg.complete && tokenImg.naturalWidth > 0) {
@@ -325,7 +546,7 @@ function drawToken() {
 /* ===============================
    MAIN DRAW
 =============================== */
-function draw() {
+function draw(t) {
   const S = canvas.clientWidth;
   ctx.clearRect(0, 0, S, S);
 
@@ -343,9 +564,16 @@ function draw() {
     // Always draw the tile for every square
     drawTile(tileBySquare[n], rect);
 
+    // Jump hint (only when visible)
+    drawJumpHint(n, rect, visible.has(n));
+
     // Text (if present)
     const entry = squareInfo[n];
-    if (!entry || !entry.text) continue;
+    if (!entry || !entry.text) {
+      // still draw spinner if this is the spin square
+      drawSpinnerOverSquare(n, t);
+      continue;
+    }
 
     if (visible.has(n)) {
       drawText(entry.text, rect); // readable
@@ -360,22 +588,75 @@ function draw() {
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
       ctx.restore();
     }
+
+    // Spinner overlays above text/tile
+    drawSpinnerOverSquare(n, t);
   }
 
-  drawToken();
+  // PACK B: tether string under token, above board
+  drawTetherString(t);
+
+  drawToken(t);
 }
 
 /* ===============================
-   INPUT
+   MOVEMENT (1 square at a time)
+=============================== */
+function attemptStep(delta) {
+  if (inputLocked) return;
+
+  const next = Math.max(1, Math.min(100, playerSquare + delta));
+  if (next === playerSquare) return;
+
+  recordMove(next);
+
+  // movement “jolt” for the tether
+  stringJolt = Math.min(1.0, stringJolt + 0.25);
+
+  // PACK A: if we landed on a jump square, spin then jump
+  startSpinIfNeeded(playerSquare);
+}
+
+/* ===============================
+   INPUT (arrow keys + space)
 =============================== */
 document.addEventListener("keydown", (e) => {
-  const isSpace = (e.code === "Space") || (e.key === " ") || (e.key === "Spacebar");
-  if (!isSpace) return;
+  const code = e.code || "";
+  const key = e.key || "";
+
+  const isSpace = (code === "Space") || (key === " ") || (key === "Spacebar");
+  const isForward =
+    (code === "ArrowRight") || (code === "ArrowUp") ||
+    (key === "ArrowRight") || (key === "ArrowUp");
+
+  const isBack =
+    (code === "ArrowLeft") || (code === "ArrowDown") ||
+    (key === "ArrowLeft") || (key === "ArrowDown");
+
+  if (!(isSpace || isForward || isBack)) return;
 
   e.preventDefault();
-  recordMove(playerSquare + 1); // move 1 square
-  draw();
+
+  if (isBack) attemptStep(-1);
+  else attemptStep(+1);
 });
+
+/* ===============================
+   TICK / LOOP
+=============================== */
+function tick(t) {
+  lastT = t;
+
+  // decay tether energy
+  stringJolt *= 0.92;
+  if (stringJolt < 0.001) stringJolt = 0;
+
+  // resolve spin -> jump when time elapsed
+  updateSpin(t);
+
+  draw(t);
+  rafId = requestAnimationFrame(tick);
+}
 
 /* ===============================
    START
@@ -384,23 +665,28 @@ async function start() {
   resizeCanvas();
 
   try {
-    await loadSquares();
+    await Promise.all([
+      loadSquares(),
+      loadJumps()
+    ]);
   } catch (err) {
-    console.error("squares.json failed to load:", err);
+    console.error("data failed to load:", err);
   }
 
-  draw();
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(tick);
 }
 
 // Ensure we start even if images fail
 board.onload = start;
 board.onerror = start;
 
-tokenImg.onload = () => draw();
+// If token loads after start, the loop will draw it automatically
+tokenImg.onload = () => {};
+tokenImg.onerror = () => {};
 
 window.addEventListener("resize", () => {
   resizeCanvas();
-  draw();
 });
 
 start();
