@@ -102,20 +102,6 @@ function cellRect(row, col) {
 }
 
 /* ===============================
-   VISIBILITY RULE (path-based)
-   Visible squares: current, ahead, behind
-=============================== */
-
-function pathDistance(n, player) {
-  return Math.abs(n - player);
-}
-
-function isVisible(n, player) {
-  const d = pathDistance(n, player);
-  return d <= 1; // current (0), behind (1), ahead (1)
-}
-
-/* ===============================
    GAME DATA (JSON)
 =============================== */
 
@@ -321,7 +307,7 @@ function draw() {
     if (visible.has(n)) {
       drawText(entry.text, rect);          // real text
     } else {
-      drawText(cipher(entry.text), rect);  // scrambled text
+      drawText(scrambleText(entry.text, n), rect);  // scrambled text
     }
   }
 
