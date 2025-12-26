@@ -17,7 +17,7 @@
     canvas {
       width: 90vmin;
       height: 90vmin;
-      background: #fff;
+      background: #eee;
       border: 5px solid #000;
       box-shadow: 0 8px 30px rgba(0,0,0,0.15);
     }
@@ -25,202 +25,320 @@
 </head>
 
 <body>
-  <canvas id="game" tabindex="0"></canvas>
+  <canvas id="game"></canvas>
 
-<script>
-/* ===============================
-   CORE
-=============================== */
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+  <script type="module">
+    /* ===============================
+       CORE SETUP
+    =============================== */
 
-const board = new Image();
-board.src = "assets/board.png";
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
 
-const tokenImg = new Image();
-tokenImg.src = "assets/token.png";
+    // Offscreen content layer (tiles + text + spinner icons)
+    const contentLayer = document.createElement("canvas");
+    const contentCtx = contentLayer.getContext("2d");
 
-let playerSquare = 1;
+    // Tiny reusable buffer for pixelation
+    const pixelBuf = document.createElement("canvas");
+    const pixelBufCtx = pixelBuf.getContext("2d");
 
-/* ===============================
-   RESIZE (CSS pixels drawing)
-=============================== */
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  const cssSize = canvas.clientWidth;
+    const board = new Image();
+    board.src = "assets/board.png";
 
-  canvas.width  = Math.round(cssSize * dpr);
-  canvas.height = Math.round(cssSize * dpr);
+    let playerSquare = 1;
 
-  // draw using CSS pixel coordinates (0..cssSize)
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-}
+    const imageCache = new Map();
 
-window.addEventListener("resize", () => {
-  resizeCanvas();
-  draw();
-});
+    /* ===============================
+       HELPERS
+    =============================== */
 
-/* ===============================
-   GRID MATH
-=============================== */
-function squareToRowCol(n) {
-  const i = n - 1;
-  const rowFromBottom = Math.floor(i / 10);
-  const colInRow = i % 10;
-
-  const row = 9 - rowFromBottom;
-  const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
-  return { row, col };
-}
-
-function cellRect(n) {
-  const S = canvas.clientWidth; // CSS pixels
-  const cell = S / 10;
-  const { row, col } = squareToRowCol(n);
-  return { x: col * cell, y: row * cell, w: cell, h: cell };
-}
-
-/* ===============================
-   VISIBILITY RULE
-   Visible: current, ahead, behind
-=============================== */
-const AHEAD = 1;
-const BEHIND = 1;
-
-function isVisible(n) {
-  if (n === playerSquare) return true;
-  if (n >= playerSquare - BEHIND && n <= playerSquare + AHEAD) return true;
-  return false;
-}
-
-/* ===============================
-   PIXEL FOG (pixelate what's already drawn)
-=============================== */
-const pixelBuf = document.createElement("canvas");
-const pixelBufCtx = pixelBuf.getContext("2d");
-
-function drawFogPixelated(rect, strength = 16, veilAlpha = 0.30) {
-  // strength bigger = chunkier pixels
-  const w = Math.max(1, Math.floor(rect.w / strength));
-  const h = Math.max(1, Math.floor(rect.h / strength));
-
-  pixelBuf.width = w;
-  pixelBuf.height = h;
-  pixelBufCtx.imageSmoothingEnabled = false;
-
-  // sample from the *already-rendered* canvas (in CSS pixels!)
-  pixelBufCtx.clearRect(0, 0, w, h);
-  pixelBufCtx.drawImage(
-    canvas,
-    rect.x, rect.y, rect.w, rect.h,
-    0, 0, w, h
-  );
-
-  // draw it back, scaled up (pixelated)
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(pixelBuf, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
-
-  // add a fog veil so it reads as "sepsis fog" not just pixels
-  ctx.fillStyle = `rgba(255,255,255,${veilAlpha})`;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-}
-
-/* ===============================
-   TOKEN
-=============================== */
-function drawToken() {
-  const r = cellRect(playerSquare);
-  const cx = r.x + r.w * 0.8;
-  const cy = r.y + r.h * 0.2;
-
-  const size = r.w * 0.45; // <-- bigger token
-
-  if (tokenImg.complete && tokenImg.naturalWidth > 0) {
-    ctx.drawImage(tokenImg, cx - size/2, cy - size/2, size, size);
-    // subtle outline so it pops
-    ctx.strokeStyle = "rgba(0,0,0,0.55)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx - size/2, cy - size/2, size, size);
-  } else {
-    ctx.beginPath();
-    ctx.arc(cx, cy, size/2, 0, Math.PI * 2);
-    ctx.fillStyle = "red";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.55)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-}
-
-/* ===============================
-   DRAW
-=============================== */
-function draw() {
-  const S = canvas.clientWidth; // CSS pixels
-  ctx.clearRect(0, 0, S, S);
-
-  // 1) draw board image if available, otherwise a faint grid background
-  if (board.complete && board.naturalWidth > 0) {
-    ctx.drawImage(board, 0, 0, S, S);
-  } else {
-    // fallback so you never get "white square of boredom"
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, S, S);
-    ctx.strokeStyle = "rgba(0,0,0,0.15)";
-    for (let i = 0; i <= 10; i++) {
-      const x = (S / 10) * i;
-      const y = (S / 10) * i;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, S); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(S, y); ctx.stroke();
+    function getImage(path) {
+      if (!path) return null;
+      if (imageCache.has(path)) return imageCache.get(path);
+      const img = new Image();
+      img.src = path;
+      imageCache.set(path, img);
+      return img;
     }
-  }
 
-  // 2) apply fog to non-visible squares (pixelating the already-drawn board)
-  for (let n = 1; n <= 100; n++) {
-    if (isVisible(n)) continue;
-    const rect = cellRect(n);
+    function resizeAll() {
+      const dpr = window.devicePixelRatio || 1;
+      const size = canvas.clientWidth;
 
-    // distance-based fog strength (optional)
-    const d = Math.abs(n - playerSquare);
-    const strength = d <= 2 ? 12 : d <= 6 ? 18 : 26;
-    const veil = d <= 2 ? 0.22 : d <= 6 ? 0.32 : 0.42;
+      // Main canvas
+      canvas.width = Math.round(size * dpr);
+      canvas.height = Math.round(size * dpr);
 
-    drawFogPixelated(rect, strength, veil);
-  }
+      // Content layer (same size)
+      contentLayer.width = Math.round(size * dpr);
+      contentLayer.height = Math.round(size * dpr);
 
-  // 3) token on top
-  drawToken();
-}
+      // Draw in CSS pixels
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      contentCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-/* ===============================
-   INPUT (SPACE)
-=============================== */
-document.addEventListener("keydown", (e) => {
-  // catch both “ ” and “Space”
-  const isSpace = (e.code === "Space") || (e.key === " ") || (e.key === "Spacebar");
-  if (!isSpace) return;
+      // Pixel look
+      ctx.imageSmoothingEnabled = false;
+      contentCtx.imageSmoothingEnabled = false;
+      pixelBufCtx.imageSmoothingEnabled = false;
+    }
 
-  e.preventDefault();
-  playerSquare = Math.min(100, playerSquare + 1);
-  draw();
-});
+    /* ===============================
+       GAME DATA
+    =============================== */
 
-/* ===============================
-   START
-=============================== */
-function start() {
-  resizeCanvas();
-  draw();
-}
+    let squareInfo = {};
+    let tileBySquare = {};
+    let spinners = {};
 
-// draw once images load (and still start even if they don’t)
-board.onload = start;
-board.onerror = start;
-tokenImg.onload = () => draw();
+    async function loadSquares() {
+      const res = await fetch("data/squares.json?v=" + Date.now());
+      const data = await res.json();
 
-start();
-</script>
+      squareInfo = data.squares || {};
+      spinners = data.spinners || {};
+
+      const tiles = data.tiles || {};
+      const defaultTilePath = tiles[data.defaultTile];
+
+      tileBySquare = {};
+      for (let i = 1; i <= 100; i++) tileBySquare[i] = defaultTilePath;
+
+      const sets = data.tileSets || {};
+      for (const key in sets) {
+        const path = tiles[key];
+        for (const n of sets[key]) tileBySquare[n] = path;
+      }
+    }
+
+    /* ===============================
+       GRID MATH
+    =============================== */
+
+    function squareToRowCol(n) {
+      const index = n - 1;
+      const rowFromBottom = Math.floor(index / 10);
+      const col = (rowFromBottom % 2 === 0)
+        ? index % 10
+        : 9 - (index % 10);
+      return { row: 9 - rowFromBottom, col };
+    }
+
+    function cellRect(row, col) {
+      const cell = canvas.clientWidth / 10;
+      return { x: col * cell, y: row * cell, w: cell, h: cell };
+    }
+
+    function distance(a, b) {
+      const ra = squareToRowCol(a);
+      const rb = squareToRowCol(b);
+      return Math.abs(ra.row - rb.row) + Math.abs(ra.col - rb.col);
+    }
+
+    /* ===============================
+       DRAW HELPERS (to a given ctx)
+    =============================== */
+
+    function drawTileTo(c, tilePath, r) {
+      const img = getImage(tilePath);
+      if (!img || !img.complete) return;
+
+      const pad = r.w * 0.06;
+      c.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+    }
+
+    function drawTextTo(c, text, r) {
+      if (!text) return;
+
+      const padding = 6;
+      const maxWidth = r.w - padding * 2;
+      let fontSize = 12;
+
+      c.fillStyle = "#000";
+      c.textAlign = "center";
+      c.textBaseline = "top";
+
+      while (fontSize >= 6) {
+        c.font = `${fontSize}px system-ui`;
+
+        const paragraphs = text.split("\n");
+        const lines = [];
+
+        for (const para of paragraphs) {
+          const words = para.split(" ");
+          let line = "";
+
+          for (const w of words) {
+            const test = line ? line + " " + w : w;
+            if (c.measureText(test).width > maxWidth) {
+              if (line) lines.push(line);
+              line = w;
+            } else {
+              line = test;
+            }
+          }
+          if (line) lines.push(line);
+          lines.push(""); // small paragraph gap marker
+        }
+        if (lines.length && lines[lines.length - 1] === "") lines.pop();
+
+        const lineHeight = Math.round(fontSize * 1.1);
+        const blockHeight = lines.length * lineHeight;
+
+        if (blockHeight <= r.h - padding * 2) {
+          const startY = r.y + (r.h - blockHeight) / 2;
+          const cx = r.x + r.w / 2;
+
+          lines.forEach((ln, i) => {
+            if (ln === "") return; // keep paragraph gap small
+            c.fillText(ln, cx, startY + i * lineHeight);
+          });
+          return;
+        }
+
+        fontSize--;
+      }
+    }
+
+    function drawSpinnerIconTo(c, r) {
+      // placeholder icon
+      c.save();
+      c.strokeStyle = "rgba(0,0,0,0.55)";
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(r.x + r.w * 0.2, r.y + r.h * 0.2, r.w * 0.08, 0, Math.PI * 2);
+      c.stroke();
+      c.restore();
+    }
+
+    /* ===============================
+       BUILD CONTENT LAYER
+    =============================== */
+
+    function drawContentLayer() {
+      const S = canvas.clientWidth;
+      contentCtx.clearRect(0, 0, S, S);
+
+      for (let n = 1; n <= 100; n++) {
+        const { row, col } = squareToRowCol(n);
+        const rect = cellRect(row, col);
+
+        drawTileTo(contentCtx, tileBySquare[n], rect);
+        if (squareInfo[n]) drawTextTo(contentCtx, squareInfo[n].text, rect);
+        if (spinners[n]) drawSpinnerIconTo(contentCtx, rect);
+      }
+    }
+
+    /* ===============================
+       PIXEL FOG (pixelate content only)
+    =============================== */
+
+    function drawFogPixelated(rect, d) {
+      const strength = (d === 1) ? 8 : (d === 2) ? 14 : 22;
+
+      const w = Math.max(1, Math.floor(rect.w / strength));
+      const h = Math.max(1, Math.floor(rect.h / strength));
+
+      pixelBuf.width = w;
+      pixelBuf.height = h;
+
+      // Sample from content layer into tiny buffer
+      pixelBufCtx.clearRect(0, 0, w, h);
+      pixelBufCtx.drawImage(contentLayer, rect.x, rect.y, rect.w, rect.h, 0, 0, w, h);
+
+      // Draw back up onto main canvas
+      ctx.drawImage(pixelBuf, 0, 0, w, h, rect.x, rect.y, rect.w, rect.h);
+
+      // light veil
+      const veil = (d === 1) ? 0.10 : (d === 2) ? 0.18 : 0.25;
+      ctx.fillStyle = `rgba(255,255,255,${veil})`;
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    }
+
+    /* ===============================
+       MAIN DRAW
+    =============================== */
+
+    function draw() {
+      const S = canvas.clientWidth;
+      ctx.clearRect(0, 0, S, S);
+
+      // Board image first (grid stays crisp)
+      if (board.complete && board.naturalWidth) {
+        ctx.drawImage(board, 0, 0, S, S);
+      }
+
+      // Build content (tiles+text+spinner icon) once per frame for now
+      drawContentLayer();
+
+      // Composite per-square
+      for (let n = 1; n <= 100; n++) {
+        const { row, col } = squareToRowCol(n);
+        const rect = cellRect(row, col);
+
+        const d = distance(n, playerSquare);
+
+        if (d <= 1) {
+          // visible: draw content clearly
+          ctx.drawImage(contentLayer, rect.x, rect.y, rect.w, rect.h,
+                        rect.x, rect.y, rect.w, rect.h);
+        } else {
+          // fog: pixelate content
+          drawFogPixelated(rect, d);
+        }
+      }
+
+      drawToken();
+    }
+
+    function drawToken() {
+      const { row, col } = squareToRowCol(playerSquare);
+      const r = cellRect(row, col);
+
+      ctx.beginPath();
+      ctx.arc(r.x + r.w * 0.8, r.y + r.h * 0.2, r.w * 0.08, 0, Math.PI * 2);
+      ctx.fillStyle = "red";
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    /* ===============================
+       INPUT
+    =============================== */
+
+    window.addEventListener("keydown", e => {
+      if (e.key === " ") {
+        e.preventDefault();
+        playerSquare = Math.min(100, playerSquare + 1);
+        draw();
+      }
+    });
+
+    /* ===============================
+       STARTUP
+    =============================== */
+
+    async function start() {
+      resizeAll();
+      await loadSquares();
+      draw();
+    }
+
+    board.onload = start;
+    board.onerror = () => {
+      console.warn("Board image failed to load — continuing anyway");
+      start();
+    };
+
+    window.addEventListener("resize", () => {
+      resizeAll();
+      draw();
+    });
+  </script>
 </body>
 </html>
