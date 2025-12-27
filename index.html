@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Pop ups are flash</title>
+  <title>Make it BIG</title>
 
   <style>
     body {
@@ -103,6 +103,9 @@ const RECALL_WINDOW_MS = 6000;
 let helpOpen = false;
 const HELP_SEEN_KEY = "snakes_help_seen_v1";
 let helpCopy = null; // data/help.json
+
+// Magnifier overlay (NEW)
+let magnifierOpen = false;
 
 // Tether dynamics
 let stringJolt = 0;
@@ -388,7 +391,6 @@ function parseBoldRuns(str) {
     i = j + 2;
   }
 
-  // If odd number of **, we just treat trailing state as-is (good enough + predictable)
   return runs;
 }
 
@@ -403,15 +405,12 @@ function measureRunText(fontSizePx, bold, text) {
 }
 
 function layoutRichText(text, maxWidth, fontSizePx) {
-  // Supports manual line breaks and **bold** toggles.
-  // Produces lines, each line is array of {text, bold}.
   const paragraphs = String(text).split("\n");
   const lines = [];
 
   for (let p = 0; p < paragraphs.length; p++) {
     const para = paragraphs[p];
 
-    // Special case: empty paragraph -> gap
     if (para.trim() === "") {
       lines.push({ type: "gap" });
       continue;
@@ -419,7 +418,6 @@ function layoutRichText(text, maxWidth, fontSizePx) {
 
     const runs = parseBoldRuns(para);
 
-    // Tokenise runs into words with bold flag, preserving spaces by re-adding a single space between words
     const tokens = [];
     for (const run of runs) {
       const parts = run.text.split(" ");
@@ -431,40 +429,34 @@ function layoutRichText(text, maxWidth, fontSizePx) {
       }
     }
 
-    // Wrap into lines
     let current = [];
     let currentW = 0;
 
     for (const tok of tokens) {
       const w = measureRunText(fontSizePx, tok.bold, tok.text);
 
-      // Don't start a line with a space
       if (current.length === 0 && tok.isSpace) continue;
 
       if (currentW + w > maxWidth && current.length > 0) {
-        // trim trailing spaces
         while (current.length && current[current.length - 1].isSpace) current.pop();
         lines.push({ type: "line", runs: current });
 
         current = [];
         currentW = 0;
 
-        if (tok.isSpace) continue; // skip leading space on new line
+        if (tok.isSpace) continue;
       }
 
       current.push(tok);
       currentW += w;
     }
 
-    // flush
     while (current.length && current[current.length - 1].isSpace) current.pop();
     if (current.length) lines.push({ type: "line", runs: current });
 
-    // paragraph gap between paragraphs (but not after last)
     if (p < paragraphs.length - 1) lines.push({ type: "gap" });
   }
 
-  // Remove trailing gap
   while (lines.length && lines[lines.length - 1].type === "gap") lines.pop();
 
   return lines;
@@ -497,7 +489,6 @@ function drawRichText(text, r, alpha = 1) {
       for (const item of lines) {
         if (item.type === "gap") { y += gapH; continue; }
 
-        // Measure full line width so we can center it
         let lineW = 0;
         for (const run of item.runs) {
           lineW += measureRunText(fontSize, run.bold, run.text);
@@ -505,7 +496,6 @@ function drawRichText(text, r, alpha = 1) {
 
         let x = cx - lineW / 2;
 
-        // Draw runs
         for (const run of item.runs) {
           setFont(fontSize, run.bold);
           ctx.fillText(run.text, x, y);
@@ -521,6 +511,150 @@ function drawRichText(text, r, alpha = 1) {
 
     fontSize--;
   }
+
+  ctx.restore();
+}
+
+/* ===============================
+   MAGNIFIER (NEW)
+=============================== */
+function toggleMagnifier(open = !magnifierOpen) {
+  magnifierOpen = !!open;
+}
+
+function getMagnifierText() {
+  // Always show the real, legible text for the square you’re standing on.
+  const t = getSquareDisplayText(playerSquare);
+  return t || "(no text for this square)";
+}
+
+function drawRichTextBox(text, box, opts = {}) {
+  const {
+    alpha = 1,
+    startFont = 26,
+    minFont = 12,
+    padding = 14
+  } = opts;
+
+  if (!text) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(0,0,0,0.92)";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  const maxWidth = box.w - padding * 2;
+
+  let chosen = null;
+
+  for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
+    const lines = layoutRichText(text, maxWidth, fontSize);
+    const lineH = Math.round(fontSize * 1.2);
+    const gapH  = Math.round(lineH * 0.55);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+
+    if (blockH <= box.h - padding * 2) {
+      chosen = { fontSize, lines, lineH, gapH, blockH };
+      break;
+    }
+  }
+
+  if (!chosen) {
+    const fontSize = minFont;
+    const lines = layoutRichText(text, maxWidth, fontSize);
+    const lineH = Math.round(fontSize * 1.2);
+    const gapH  = Math.round(lineH * 0.55);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+    chosen = { fontSize, lines, lineH, gapH, blockH };
+  }
+
+  const { fontSize, lines, lineH, gapH, blockH } = chosen;
+
+  // Clip to the box so overflow doesn’t spill
+  ctx.beginPath();
+  ctx.rect(box.x + padding, box.y + padding, box.w - 2 * padding, box.h - 2 * padding);
+  ctx.clip();
+
+  // Top aligned (feels like a note)
+  let y = box.y + padding;
+
+  for (const item of lines) {
+    if (item.type === "gap") { y += gapH; continue; }
+
+    let x = box.x + padding;
+
+    for (const run of item.runs) {
+      setFont(fontSize, run.bold);
+      ctx.fillText(run.text, x, y);
+      x += ctx.measureText(run.text).width;
+    }
+    y += lineH;
+  }
+
+  ctx.restore();
+}
+
+function drawMagnifierOverlay(t) {
+  if (!magnifierOpen) return;
+
+  const S = canvas.clientWidth;
+  const pad = Math.max(14, S * 0.05);
+
+  // Panel near the bottom (stays out of your token/string drama)
+  const panelH = Math.max(140, S * 0.34);
+  const panelW = S - pad * 2;
+  const x = pad;
+  const y = S - pad - panelH;
+
+  ctx.save();
+
+  // Dim background slightly
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+
+  // Panel
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x, y, panelW, panelH);
+
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeRect(x, y, panelW, panelH);
+
+  // Header
+  const headerSize = Math.max(12, Math.round(S * 0.022));
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.font = `700 ${headerSize}px system-ui`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`Square ${playerSquare}`, x + 14, y + 10);
+
+  // Body box under header
+  const bodyBox = {
+    x: x + 10,
+    y: y + 10 + headerSize * 1.4,
+    w: panelW - 20,
+    h: panelH - (10 + headerSize * 1.4) - 24
+  };
+
+  drawRichTextBox(getMagnifierText(), bodyBox, {
+    startFont: Math.max(18, Math.round(S * 0.045)),
+    minFont: Math.max(12, Math.round(S * 0.03)),
+    padding: 14,
+    alpha: 1
+  });
+
+  // Tiny hint
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.font = `600 ${headerSize}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("M or Esc to close", x + panelW - 14, y + panelH - 10);
 
   ctx.restore();
 }
@@ -582,14 +716,11 @@ function clearActiveSubstitutionIfMoved() {
 }
 
 function maybeArmSubstitutionOnLanding(n, tNow) {
-  // Only once per square per load
   if (shownSubstitutions.has(String(n))) return;
 
-  // Must have substitution text
   const txt = getSubTextForSquare(n);
   if (!txt) return;
 
-  // Already active/armed for this square
   if (activeSubSquare === n) return;
   if (substitutionArmed && substitutionArmed.square === n) return;
 
@@ -601,13 +732,11 @@ function updateSubstitution(t) {
 
   if (!substitutionArmed) return;
 
-  // If moved away before it triggers, cancel
   if (playerSquare !== substitutionArmed.square) {
     substitutionArmed = null;
     return;
   }
 
-  // Trigger
   if (t >= substitutionArmed.showAt) {
     const sq = substitutionArmed.square;
     const txt = getSubTextForSquare(sq);
@@ -616,8 +745,6 @@ function updateSubstitution(t) {
       activeSubSquare = sq;
       activeSubText = txt;
       shownSubstitutions.add(String(sq));
-
-      // Arm the tiny in-cell cue
       subCue = { square: sq, t0: t };
     }
 
@@ -634,7 +761,6 @@ function drawSubstitutionCue(t, rect, n) {
   const p = Math.max(0, Math.min(1, age / SUB_CUE_MS));
   const fade = 1 - p;
 
-  // A quick "wipe" that shrinks + fades, plus a subtle border pulse
   const inset = rect.w * (0.06 + 0.08 * p);
   const x = rect.x + inset;
   const y = rect.y + inset;
@@ -643,12 +769,10 @@ function drawSubstitutionCue(t, rect, n) {
 
   ctx.save();
 
-  // Soft white wipe
   ctx.globalAlpha = 0.35 * fade;
   ctx.fillStyle = "#fff";
   ctx.fillRect(x, y, w, h);
 
-  // Border pulse
   ctx.globalAlpha = 0.55 * fade;
   ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.lineWidth = Math.max(2, rect.w * 0.05 * fade);
@@ -656,7 +780,6 @@ function drawSubstitutionCue(t, rect, n) {
 
   ctx.restore();
 }
-
 
 /* ===============================
    SPINNERS
@@ -787,7 +910,6 @@ function attemptRecall(tNow) {
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
   startSpinIfNeeded(playerSquare);
-  // arm substitution for landing square
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
 }
 
@@ -863,7 +985,6 @@ function updateSpin(t) {
     inputLocked = false;
   }
 
-  // arm substitution for landing square after spin resolves
   maybeArmSubstitutionOnLanding(playerSquare, t);
 }
 
@@ -983,6 +1104,7 @@ function getHelpLines(tNow) {
       "← / ↓  : back 1 square",
       "Space  : forward 1 square",
       "Home / 1 : return to square 1",
+      "M : magnify current square",
       "",
       "⟳ Spinner squares: outcome is random.",
       "Hospital pull: sometimes you are snapped back to square 1.",
@@ -1060,10 +1182,7 @@ function drawHelpOverlay(t) {
    MAIN DRAW
 =============================== */
 function getSquareDisplayText(n) {
-  // If substitution is active for this square, show it
   if (activeSubSquare === n && activeSubText) return activeSubText;
-
-  // Otherwise show normal square text
   return squareText[String(n)] || "";
 }
 
@@ -1101,7 +1220,6 @@ function draw(t) {
     }
 
     drawSubstitutionCue(t, rect, n);
-
     drawSpinnerOverSquare(n, t);
   }
 
@@ -1109,7 +1227,6 @@ function draw(t) {
   drawToken(t);
   drawSpinnerOutcome(t);
 
-  // Recall hint
   if (canRecall(t)) {
     const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
     const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
@@ -1131,7 +1248,6 @@ function draw(t) {
     ctx.restore();
   }
 
-  // Flash feedback on CHEAT toggle
   if (t < cheatFlashUntil) {
     const remaining = cheatFlashUntil - t;
     const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
@@ -1142,6 +1258,8 @@ function draw(t) {
     ctx.restore();
   }
 
+  // Overlays on top
+  drawMagnifierOverlay(t);
   drawHelpOverlay(t);
 }
 
@@ -1157,13 +1275,10 @@ function attemptStep(delta, tNow) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // Arm substitution for landing square
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
 
-  // Spinner may override landing; substitution for spinner destination is armed in updateSpin()
   if (startSpinIfNeeded(playerSquare)) return;
 
-  // Hospital pull
   hospitalPullMaybe(tNow);
 }
 
@@ -1207,9 +1322,9 @@ document.addEventListener("keydown", (e) => {
     }
   }
 
-  // Help is only "?"
   const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
+  const isMagnify = (key === "m");
 
   const isRecall = (key === "r");
   const isHome = (code === "Home" || key === "home" || key === "1");
@@ -1223,14 +1338,27 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  if (!(isHelp || isEsc || isRecall || isHome || isSpace || isForward || isBack)) return;
+  // If magnifier is open, movement closes it first (then next keypress moves)
+  const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
+  if (magnifierOpen) {
+    if (isEsc || isMagnify || isHelp || isMovementKey) {
+      e.preventDefault();
+      toggleMagnifier(false);
+      return;
+    }
+  }
+
+  if (!(isHelp || isEsc || isMagnify || isRecall || isHome || isSpace || isForward || isBack)) return;
   e.preventDefault();
 
   if (isHelp) { toggleHelp(!helpOpen); return; }
 
+  if (isMagnify) { toggleMagnifier(!magnifierOpen); return; }
+
   if (isEsc)  {
     if (helpOpen) { toggleHelp(false); return; }
-    if (revealAll) { revealAll = false; return; } // return to jumbled/fog board
+    if (magnifierOpen) { toggleMagnifier(false); return; }
+    if (revealAll) { revealAll = false; return; }
     return;
   }
 
@@ -1290,9 +1418,7 @@ async function start() {
     console.error("data failed to load:", err);
   }
 
-  // Arm substitution if starting square has one (unlikely, but consistent)
   maybeArmSubstitutionOnLanding(playerSquare, performance.now());
-
   maybeOpenHelpOnFirstVisit();
 
   if (rafId) cancelAnimationFrame(rafId);
