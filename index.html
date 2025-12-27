@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Filthy Cheetah</title>
+  <title>Simple Cheetah</title>
 
   <style>
     body {
@@ -903,21 +903,25 @@ function attemptStep(delta, tNow) {
 /* ===============================
    INPUT
 =============================== */
-const pressed = new Set();
-let cheatLatched = false;
 
-function normKey(k) {
-  return String(k || "").toLowerCase();
-}
+// --- CHEAT CODE: type "CHEAT" quickly to toggle revealAll ---
+let cheatBuffer = "";
+let cheatLastT = 0;
+const CHEAT_TIMEOUT_MS = 900; // max gap between letters
 
-function checkCheatChord() {
-  // Require holding: Shift + C H E A T
-  // (Shift state is not a normal key reliably in the set, so we check it via event flags)
-  return pressed.has("c") &&
-         pressed.has("h") &&
-         pressed.has("e") &&
-         pressed.has("a") &&
-         pressed.has("t");
+function pushCheatChar(ch, tNow) {
+  // Reset buffer if they paused too long
+  if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
+  cheatLastT = tNow;
+
+  cheatBuffer = (cheatBuffer + ch).slice(-5);
+
+  if (cheatBuffer === "cheat") {
+    revealAll = !revealAll;
+    cheatBuffer = "";
+    return true;
+  }
+  return false;
 }
 
 document.addEventListener("keydown", (e) => {
@@ -925,26 +929,19 @@ document.addEventListener("keydown", (e) => {
 
   const code = e.code || "";
   const rawKey = e.key || "";
-  const key = normKey(rawKey);
+  const key = String(rawKey || "").toLowerCase();
 
-  // Track pressed keys (ignore auto-repeat so the set stays sane)
-  if (!e.repeat) pressed.add(key);
-
-  // CHEAT chord: Shift + C H E A T held down together
-  // Toggle once per hold (latched).
-  if (e.shiftKey && checkCheatChord()) {
-    e.preventDefault();
-
-    if (!cheatLatched) {
-      revealAll = !revealAll;
-      cheatLatched = true;
+  // Let them rage-toggle even while help is open:
+  // typing C-H-E-A-T (in order) toggles revealAll
+  if (key.length === 1 && "cheat".includes(key)) {
+    // Only treat as cheat input when no modifier keys are held
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      const toggled = pushCheatChar(key, tNow);
+      if (toggled) {
+        e.preventDefault();
+        return;
+      }
     }
-    return;
-  }
-
-  // If they let go of the chord (or never had it), unlatch so it can be used again next time.
-  if (!e.shiftKey || !checkCheatChord()) {
-    cheatLatched = false;
   }
 
   const isHelp = (key === "?" || key === "h");
@@ -968,6 +965,7 @@ document.addEventListener("keydown", (e) => {
   if (isHelp) { toggleHelp(!helpOpen); return; }
   if (isEsc)  { toggleHelp(false); return; }
 
+  // When help is open, ignore movement etc.
   if (helpOpen) return;
 
   if (isHome) { goHome(tNow); return; }
@@ -977,21 +975,10 @@ document.addEventListener("keydown", (e) => {
   else attemptStep(+1, tNow);
 });
 
-document.addEventListener("keyup", (e) => {
-  const key = normKey(e.key);
-
-  pressed.delete(key);
-
-  // When any part of the chord is released, unlatch so it can be used again.
-  if (key === "c" || key === "h" || key === "e" || key === "a" || key === "t" || key === "shift") {
-    cheatLatched = false;
-  }
-});
-
-// Safety: if the window loses focus, clear pressed state so it can't get "stuck"
+// Safety: if the window loses focus, clear cheat buffer
 window.addEventListener("blur", () => {
-  pressed.clear();
-  cheatLatched = false;
+  cheatBuffer = "";
+  cheatLastT = 0;
 });
 
 /* ===============================
