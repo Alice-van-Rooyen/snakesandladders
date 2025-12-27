@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>??Are we there yet??</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -51,14 +51,22 @@ let visited = [1];
 
 // --- DATA LAYERS (separated) ---
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // from data/tiles.json
-let squareText = {};                                               // from data/text.json (keys "1".."100")
+let squareText = {};                                               // from data/text.json (keys "1".."100" usually)
 
 // Tile mapping (built from tileConfig)
 let tileBySquare = {};
 
-// Spinners
-let spinnerMap = {};
+// Spinners (mechanics)
+let spinnerMap = {};          // { from: [to,to,...] }
 let spinnerSquares = new Set();
+
+// Spinner art (optional)
+let spinnerPins = {};         // { from: "path.png" }
+let spinnerOutcomes = {};     // { from: { to: "path.png" } }
+
+// Last resolved spinner outcome (for rotated outcome art)
+let lastSpin = null;          // { from, to, t0, imgPath }
+const SPIN_OUTCOME_MS = 900;
 
 // Animation / interaction state
 let rafId = null;
@@ -171,11 +179,9 @@ async function loadTiles() {
 
   const defaultPath = tileConfig.tiles[tileConfig.defaultTile];
 
-  // Build tileBySquare for ALL 100 squares
   tileBySquare = {};
   for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
 
-  // Apply overrides
   for (const colourName of Object.keys(tileConfig.tileSets)) {
     const path = tileConfig.tiles[colourName];
     for (const n of (tileConfig.tileSets[colourName] || [])) {
@@ -183,18 +189,17 @@ async function loadTiles() {
     }
   }
 
-  // Preload unique tile images
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
 }
 
 async function loadText() {
+  // Accept either:
+  // 1) flat map: { "1":"...", "2":"..." }
+  // 2) nested legacy: { "squares": { "1": { "text":"..." }, ... } }
   const res = await fetch("data/text.json?v=" + Date.now());
   const data = await res.json();
 
-  // Accept either:
-  // 1) flat: { "1": "text", "2": "text" }
-  // 2) nested: { "squares": { "1": { "text": "..." }, ... } }
   if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
     const out = {};
     for (const [k, v] of Object.entries(data.squares)) {
@@ -205,13 +210,12 @@ async function loadText() {
     return;
   }
 
-  // Flat map
   squareText = (data && typeof data === "object") ? data : {};
 }
 
-
 async function loadJumps() {
-  // Optional file. If absent, game still runs with no spinners.
+  // Expects:
+  // { "spinners": { "17": [5, 32, 8], ... } }
   try {
     const res = await fetch("data/jumps.json?v=" + Date.now());
     if (!res.ok) throw new Error("jumps.json not ok");
@@ -220,7 +224,6 @@ async function loadJumps() {
     spinnerMap = {};
     spinnerSquares = new Set();
 
-    // NEW format: spinners: { "from": [to1,to2,...] }
     if (data.spinners && typeof data.spinners === "object") {
       for (const [k, arr] of Object.entries(data.spinners)) {
         const from = Number(k);
@@ -237,7 +240,7 @@ async function loadJumps() {
       }
     }
 
-    // Back-compat: jumps: { "from": to }
+    // Back-compat: { "jumps": { "4": 14 } }
     if (data.jumps && typeof data.jumps === "object") {
       for (const [k, v] of Object.entries(data.jumps)) {
         const from = Number(k);
@@ -259,13 +262,27 @@ async function loadJumps() {
 }
 
 async function loadHelpCopy() {
-  // Optional: data/help.json
   try {
     const res = await fetch("data/help.json?v=" + Date.now());
     if (!res.ok) throw new Error("help.json not ok");
     helpCopy = await res.json();
   } catch {
     helpCopy = null;
+  }
+}
+
+async function loadSpinnerArt() {
+  // Optional: data/spinner_art.json
+  try {
+    const res = await fetch("data/spinner_art.json?v=" + Date.now());
+    if (!res.ok) throw new Error("spinner_art.json not ok");
+    const data = await res.json();
+
+    spinnerPins = (data && typeof data.pins === "object") ? data.pins : {};
+    spinnerOutcomes = (data && typeof data.outcomes === "object") ? data.outcomes : {};
+  } catch {
+    spinnerPins = {};
+    spinnerOutcomes = {};
   }
 }
 
@@ -417,20 +434,6 @@ function getVisibleSet() {
 =============================== */
 function isSpinnerSquare(n) { return spinnerSquares.has(n); }
 
-function drawSpinnerHint(n, rect, visible) {
-  if (!isSpinnerSquare(n)) return;
-  if (!visible) return;
-
-  ctx.save();
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = "rgba(0,0,0,0.7)";
-  ctx.font = `${Math.max(11, Math.round(rect.w * 0.18))}px system-ui`;
-  ctx.textAlign = "right";
-  ctx.textBaseline = "top";
-  ctx.fillText("⟳", rect.x + rect.w - rect.w * 0.08, rect.y + rect.h * 0.08);
-  ctx.restore();
-}
-
 function randInt(maxExclusive) {
   if (maxExclusive <= 1) return 0;
   const c = globalThis.crypto;
@@ -446,6 +449,67 @@ function chooseSpinnerDestination(fromSquare) {
   const options = spinnerMap[fromSquare];
   if (!options || options.length === 0) return null;
   return options[randInt(options.length)];
+}
+
+function drawSpinnerPin(n, rect, visible) {
+  // Pinned art on spinner squares (optional)
+  if (!spinnerSquares.has(n)) return;
+  if (!visible) return;
+
+  const path = spinnerPins[String(n)];
+  if (!path) return;
+
+  const img = getImage(path);
+  if (!img || !img.complete || img.naturalWidth === 0) return;
+
+  // Placement inside square (tweak later to harmonize with doodles)
+  const size = rect.w * 0.72;
+  const x = rect.x + rect.w * 0.14;
+  const y = rect.y + rect.h * 0.14;
+
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  ctx.drawImage(img, x, y, size, size);
+  ctx.restore();
+}
+
+function drawSpinnerOutcome(t) {
+  // Rotated outcome art (optional, per from->to)
+  if (!lastSpin) return;
+
+  const age = t - lastSpin.t0;
+  if (age > SPIN_OUTCOME_MS) { lastSpin = null; return; }
+
+  const from = squareCenter(lastSpin.from);
+  const to = squareCenter(lastSpin.to);
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const angle = Math.atan2(dy, dx);
+
+  const img = getImage(lastSpin.imgPath);
+  if (!img || !img.complete || img.naturalWidth === 0) return;
+
+  const p = Math.max(0, Math.min(1, age / SPIN_OUTCOME_MS));
+  const fade = 1 - p;
+
+  const size = from.r.w * 0.82;
+
+  ctx.save();
+  ctx.globalAlpha = 0.85 * fade;
+
+  // subtle highlight over origin square
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(from.r.x, from.r.y, from.r.w, from.r.h);
+
+  ctx.translate(from.x, from.y);
+  ctx.rotate(angle);
+
+  // gentle settling wobble
+  ctx.rotate(Math.sin((t - lastSpin.t0) * 0.02) * 0.10 * fade);
+
+  ctx.drawImage(img, -size/2, -size/2, size, size);
+  ctx.restore();
 }
 
 /* ===============================
@@ -521,6 +585,7 @@ function startSpinIfNeeded(fromSquare) {
 }
 
 function drawSpinnerOverSquare(n, t) {
+  // Spin indicator (the circular arc) while the spinner is "thinking"
   if (!spinActive || spinSquare !== n) return;
 
   const { x, y, r } = squareCenter(n);
@@ -561,8 +626,16 @@ function updateSpin(t) {
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
+  const fromSquare = spinSquare;
+
   recordMove(to);
   stringJolt = Math.min(1.2, stringJolt + 0.45);
+
+  // Remember spinner outcome art (if provided)
+  const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
+  const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
+  if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
+  else lastSpin = null;
 
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
@@ -684,11 +757,11 @@ function getHelpLines(tNow) {
       "→ / ↑  : forward 1 square",
       "← / ↓  : back 1 square",
       "Space  : forward 1 square",
+      "Home / 1 : return to square 1",
       "",
       "⟳ Spinner squares: outcome is random.",
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
-      "Home / 1 : return to square 1",
       "",
       "? / H : toggle this help",
       "Esc   : close help"
@@ -720,7 +793,6 @@ function drawHelpOverlay(t) {
   ctx.strokeRect(pad, pad, boxW, boxH);
 
   const { title, lines } = getHelpLines(t);
-
   const left = pad + Math.max(16, S * 0.05);
   const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
@@ -778,8 +850,11 @@ function draw(t) {
     const rect = cellRect(row, col);
 
     drawTile(tileBySquare[n], rect);
-    drawSpinnerHint(n, rect, visible.has(n));
 
+    // Optional spinner pin art
+    drawSpinnerPin(n, rect, visible.has(n));
+
+    // Text (from data/text.json)
     const text = squareText[String(n)] || "";
 
     if (text) {
@@ -797,6 +872,7 @@ function draw(t) {
       }
     }
 
+    // Spinner “thinking” arc
     drawSpinnerOverSquare(n, t);
   }
 
@@ -825,6 +901,10 @@ function draw(t) {
     ctx.restore();
   }
 
+  // Outcome art (rotated toward destination) — optional
+  drawSpinnerOutcome(t);
+
+  // Help overlay on top
   drawHelpOverlay(t);
 }
 
@@ -878,7 +958,6 @@ document.addEventListener("keydown", (e) => {
   if (isHelp) { toggleHelp(!helpOpen); return; }
   if (isEsc)  { toggleHelp(false); return; }
 
-  // when help is open, ignore movement
   if (helpOpen) return;
 
   if (isHome) { goHome(tNow); return; }
@@ -921,7 +1000,8 @@ async function start() {
       loadTiles(),
       loadText(),
       loadJumps(),
-      loadHelpCopy()
+      loadHelpCopy(),
+      loadSpinnerArt()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
@@ -933,6 +1013,7 @@ async function start() {
   rafId = requestAnimationFrame(tick);
 }
 
+// Ensure we start even if images fail
 board.onload = start;
 board.onerror = start;
 
