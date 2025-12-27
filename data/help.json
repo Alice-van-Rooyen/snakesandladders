@@ -10,7 +10,7 @@
     "Home / 1 : return to square 1",
     "Recall: press R within a few seconds to return.",
     "",
-    "? / H : toggle this help",
+    "? : toggle this help",
     "Esc   : close help"
   ]
 }
