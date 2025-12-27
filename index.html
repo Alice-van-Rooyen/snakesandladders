@@ -72,11 +72,10 @@ let spinnerOutcomes = {};     // { from: { to: "path.png" } }
 
 // Square substitution (replaces square text after landing delay)
 let popupMap = {};               // { "36": { popup: "..." }, ... }
-const shownSubstitutions = new Set(); // "36", "69" ... (once per load)
 let substitutionArmed = null;     // { square, showAt }
 let activeSubSquare = null;       // number or null
 let activeSubText = "";           // string
-const SUB_DELAY_MS = 520;         // tiny delay to let the original square be read
+const SUB_DELAY_MS = 320;         // tiny delay to let the original square be read
 
 // Last resolved spinner outcome (for rotated outcome art)
 let lastSpin = null;          // { from, to, t0, imgPath }
@@ -478,8 +477,8 @@ function drawRichText(text, r, alpha = 1) {
   while (fontSize >= 6) {
     const lines = layoutRichText(text, maxWidth, fontSize);
 
-    const lineH = Math.round(fontSize * 1.15);
-    const gapH  = Math.round(lineH * 0.45);
+    const lineH = Math.round(fontSize * 1.12);
+    const gapH  = Math.round(lineH * 0.22);
     const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
 
     if (blockH <= r.h - padding * 2) {
@@ -716,14 +715,14 @@ function clearActiveSubstitutionIfMoved() {
 }
 
 function maybeArmSubstitutionOnLanding(n, tNow) {
-  if (shownSubstitutions.has(String(n))) return;
-
+  // Must have substitution text
   const txt = getSubTextForSquare(n);
   if (!txt) return;
 
-  if (activeSubSquare === n) return;
+  // Already armed for this square
   if (substitutionArmed && substitutionArmed.square === n) return;
 
+  // Arm a delayed substitution every time you land
   substitutionArmed = { square: n, showAt: tNow + SUB_DELAY_MS };
 }
 
@@ -732,11 +731,13 @@ function updateSubstitution(t) {
 
   if (!substitutionArmed) return;
 
+  // If moved away before it triggers, cancel
   if (playerSquare !== substitutionArmed.square) {
     substitutionArmed = null;
     return;
   }
 
+  // Trigger
   if (t >= substitutionArmed.showAt) {
     const sq = substitutionArmed.square;
     const txt = getSubTextForSquare(sq);
@@ -744,7 +745,8 @@ function updateSubstitution(t) {
     if (txt) {
       activeSubSquare = sq;
       activeSubText = txt;
-      shownSubstitutions.add(String(sq));
+
+      // Tiny in-cell cue
       subCue = { square: sq, t0: t };
     }
 
@@ -761,6 +763,7 @@ function drawSubstitutionCue(t, rect, n) {
   const p = Math.max(0, Math.min(1, age / SUB_CUE_MS));
   const fade = 1 - p;
 
+  // A quick "wipe" that shrinks + fades, plus a subtle border pulse
   const inset = rect.w * (0.06 + 0.08 * p);
   const x = rect.x + inset;
   const y = rect.y + inset;
@@ -769,10 +772,12 @@ function drawSubstitutionCue(t, rect, n) {
 
   ctx.save();
 
+  // Soft white wipe
   ctx.globalAlpha = 0.35 * fade;
   ctx.fillStyle = "#fff";
   ctx.fillRect(x, y, w, h);
 
+  // Border pulse
   ctx.globalAlpha = 0.55 * fade;
   ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.lineWidth = Math.max(2, rect.w * 0.05 * fade);
@@ -780,6 +785,7 @@ function drawSubstitutionCue(t, rect, n) {
 
   ctx.restore();
 }
+
 
 /* ===============================
    SPINNERS
