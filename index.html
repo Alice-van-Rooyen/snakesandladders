@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>alice is optimistic</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -46,54 +46,54 @@ let playerSquare = 1;
 
 // Visibility tuning
 const AHEAD = 1;
-const TRAIL_BEHIND = 6;  // “remember a week” vibe
-let visited = [1];       // breadcrumb trail
+const TRAIL_BEHIND = 6;
+let visited = [1];
 
 // Game data
-let squareInfo = {};     // { "1": {text, icon}, ... }
-let tiles = {};          // { blue: "assets/tiles/blue.png", ... }
-let tileSets = {};       // { pink: [..], ... }
-let tileBySquare = {};   // { 1: "assets/tiles/blue.png", ... }
+let squareInfo = {};
+let tiles = {};
+let tileSets = {};
+let tileBySquare = {};
 
-// Spinnable snakes & ladders (random outcomes)
-// Supported data/jumps.json formats:
-//
-// NEW (recommended):
-// { "spinners": { "4": [14, 2, 27], "9": [3, 18] } }
-//
-// Back-compat (single fixed jump):
-// { "jumps": { "4": 14, "9": 2 } }
-let spinnerMap = {};     // { 4: [14,2,27], ... }
+// Spinners
+let spinnerMap = {};
 let spinnerSquares = new Set();
 
 // Animation / interaction state
 let rafId = null;
 let inputLocked = false;
 
-// Spin (on landing) state (used for both spinners + “hospital pull”)
+// Spin state
 let spinActive = false;
 let spinSquare = null;
 let spinStartT = 0;
 let spinDurationMs = 700;
 let pendingJumpTo = null;
 
-// “Hospital pull” (occasional snap-back to square 1)
-const HOSPITAL_PULL_CHANCE = 0.03; // 3% chance on each landing (tweak to taste)
-let lastSafeSquare = 1;            // last non-1 square you were on before a pull
-let recallSquare = null;           // can attempt to return to this
-let recallExpiresAt = 0;           // memory window (ms epoch from performance.now)
-const RECALL_WINDOW_MS = 6000;     // “if you can remember it”
+// Hospital pull + recall
+const HOSPITAL_PULL_CHANCE = 0.03;
+let lastSafeSquare = 1;
+let recallSquare = null;
+let recallExpiresAt = 0;
+const RECALL_WINDOW_MS = 6000;
 
-// Help overlay state ( ? overlay )
+// Help overlay
 let helpOpen = false;
 const HELP_SEEN_KEY = "snakes_help_seen_v1";
+let helpCopy = null; // loaded from JSON if available
 
-// Tether “string” dynamics
+// Tether dynamics
 let stringJolt = 0;
 
-// String styling (lighter + thinner + string-like)
-const STRING_COLOR = "rgba(184, 38, 60, 0.55)"; // soft red string
+// String styling
+const STRING_COLOR = "rgba(184, 38, 60, 0.55)";
 const STRING_KNOT_COLOR = "rgba(184, 38, 60, 0.85)";
+
+// --- TUNING KNOBS (art-friendly) ---
+let TOKEN_PAD_FRAC = 0.12;  // ↑ increase to lift token (was 0.10-ish)
+let PIN_PAD_FRAC   = 0.10;  // hospital pin/knot anchor
+let RECALL_LABEL_X_FRAC = 0.14; // how far left from pin (fraction of cell width)
+let RECALL_LABEL_Y_FRAC = 0.08; // how far UP from pin (smaller = lower label)
 
 // Image cache
 const imageCache = new Map();
@@ -116,7 +116,6 @@ function resizeCanvas() {
   canvas.width = Math.round(size * dpr);
   canvas.height = Math.round(size * dpr);
 
-  // Draw using CSS pixels (0..size)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
 }
@@ -128,10 +127,8 @@ function squareToRowCol(n) {
   const index = n - 1;
   const rowFromBottom = Math.floor(index / 10);
   const colInRow = index % 10;
-
   const row = 9 - rowFromBottom;
   const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
-
   return { row, col };
 }
 
@@ -141,13 +138,13 @@ function cellRect(row, col) {
   return { x: col * cell, y: row * cell, w: cell, h: cell };
 }
 
-function squareCornerAnchor(n, corner /* "br" | "bl" */) {
+function squareCornerAnchor(n, corner, padFrac) {
   const { row, col } = squareToRowCol(n);
   const r = cellRect(row, col);
-  const pad = r.w * 0.10;
+  const pad = r.w * padFrac;
 
   if (corner === "bl") return { x: r.x + pad, y: r.y + r.h - pad, r };
-  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r }; // default "br"
+  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r }; // br
 }
 
 function squareCenter(n) {
@@ -170,11 +167,9 @@ async function loadSquares() {
   const defaultName = data.defaultTile || "blue";
   const defaultPath = tiles[defaultName];
 
-  // Build tileBySquare for ALL 100 squares
   tileBySquare = {};
   for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
 
-  // Apply overrides
   for (const colourName of Object.keys(tileSets)) {
     const path = tiles[colourName];
     for (const n of (tileSets[colourName] || [])) {
@@ -182,7 +177,6 @@ async function loadSquares() {
     }
   }
 
-  // Preload unique tile images
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
 }
@@ -205,8 +199,7 @@ async function loadJumps() {
           .map(Number)
           .filter(to => Number.isFinite(to) && to >= 1 && to <= 100 && to !== from);
 
-        if (list.length === 0) continue;
-
+        if (!list.length) continue;
         spinnerMap[from] = list;
         spinnerSquares.add(from);
       }
@@ -232,6 +225,18 @@ async function loadJumps() {
   }
 }
 
+async function loadHelpCopy() {
+  // Optional: data/help.json
+  try {
+    const res = await fetch("data/help.json?v=" + Date.now());
+    if (!res.ok) throw new Error("help.json not ok");
+    const data = await res.json();
+    helpCopy = data;
+  } catch {
+    helpCopy = null;
+  }
+}
+
 function preloadImages(paths) {
   const promises = paths.map(p => new Promise(resolve => {
     const img = getImage(p);
@@ -249,16 +254,13 @@ function preloadImages(paths) {
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
-
   const pad = r.w * 0.06;
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-// Deterministic scramble (cipher) per square number
 function scrambleText(text, seed) {
   let s = seed * 99991;
   const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
-
   return [...text].map(ch => {
     if (/[a-z]/.test(ch)) return String.fromCharCode(97 + Math.floor(rand() * 26));
     if (/[A-Z]/.test(ch)) return String.fromCharCode(65 + Math.floor(rand() * 26));
@@ -268,20 +270,14 @@ function scrambleText(text, seed) {
 
 function fogAlphaForSquare(n) {
   const d = Math.abs(n - playerSquare);
-  const near = 0.55;
-  const far  = 0.92;
-  const start = 2;
-  const end   = 20;
+  const near = 0.55, far = 0.92, start = 2, end = 20;
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
 
 function fogVeilForSquare(n) {
   const d = Math.abs(n - playerSquare);
-  const near = 0.06;
-  const far  = 0.22;
-  const start = 2;
-  const end   = 20;
+  const near = 0.06, far = 0.22, start = 2, end = 20;
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
@@ -308,15 +304,12 @@ function drawText(text, r, alpha = 1) {
     for (const para of paragraphs) {
       const words = para.split(" ");
       let line = "";
-
       for (const w of words) {
         const test = line ? `${line} ${w}` : w;
         if (ctx.measureText(test).width > maxWidth) {
           if (line) lines.push(line);
           line = w;
-        } else {
-          line = test;
-        }
+        } else line = test;
       }
       if (line) lines.push(line);
       lines.push({ type: "gap" });
@@ -340,10 +333,8 @@ function drawText(text, r, alpha = 1) {
       ctx.restore();
       return;
     }
-
     fontSize--;
   }
-
   ctx.restore();
 }
 
@@ -353,22 +344,18 @@ function drawText(text, r, alpha = 1) {
 function recordMove(toSquare) {
   toSquare = Math.max(1, Math.min(100, toSquare));
   const step = (toSquare > playerSquare) ? 1 : -1;
-
   while (playerSquare !== toSquare) {
     playerSquare += step;
     visited.push(playerSquare);
   }
-
   if (visited.length > 500) visited = visited.slice(-250);
 }
 
 function getVisibleSet() {
   const vis = new Set();
-  vis.add(1); // Square 1 ALWAYS visible + legible
+  vis.add(1);
   vis.add(playerSquare);
-
   for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
-
   for (let i = visited.length - 1; i >= 0 && vis.size < (2 + AHEAD + TRAIL_BEHIND); i--) {
     vis.add(visited[i]);
   }
@@ -378,14 +365,10 @@ function getVisibleSet() {
 /* ===============================
    SPINNABLE SNAKES & LADDERS (random)
 =============================== */
-function isSpinnerSquare(n) {
-  return spinnerSquares.has(n);
-}
+function isSpinnerSquare(n) { return spinnerSquares.has(n); }
 
 function drawSpinnerHint(n, rect, visible) {
-  if (!isSpinnerSquare(n)) return;
-  if (!visible) return;
-
+  if (!isSpinnerSquare(n) || !visible) return;
   ctx.save();
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -414,16 +397,23 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 /* ===============================
-   HOSPITAL PULL + RECALL
+   HOSPITAL PULL + RECALL + HOME
 =============================== */
 function hospitalPullMaybe(tNow) {
   if (spinActive) return false;
   if (playerSquare === 1) return false;
   if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
 
-  lastSafeSquare = playerSquare;
-  recallSquare = lastSafeSquare;
-  recallExpiresAt = tNow + RECALL_WINDOW_MS;
+  beginReturnToHospital(tNow, /*setRecall=*/true);
+  return true;
+}
+
+function beginReturnToHospital(tNow, setRecall) {
+  if (playerSquare !== 1 && setRecall) {
+    lastSafeSquare = playerSquare;
+    recallSquare = lastSafeSquare;
+    recallExpiresAt = tNow + RECALL_WINDOW_MS;
+  }
 
   spinActive = true;
   spinSquare = playerSquare;
@@ -432,7 +422,6 @@ function hospitalPullMaybe(tNow) {
   inputLocked = true;
 
   stringJolt = Math.min(1.2, stringJolt + 0.55);
-  return true;
 }
 
 function canRecall(tNow) {
@@ -456,12 +445,19 @@ function attemptRecall(tNow) {
   startSpinIfNeeded(playerSquare);
 }
 
+// Home command: always returns you to 1 (with recall set)
+function goHome(tNow) {
+  if (inputLocked) return;
+  if (playerSquare === 1) return;
+
+  beginReturnToHospital(tNow, /*setRecall=*/true);
+}
+
 /* ===============================
-   SPIN LOGIC (spinners + hospital pull)
+   SPIN LOGIC (spinners + hospital return)
 =============================== */
 function startSpinIfNeeded(fromSquare) {
   if (!isSpinnerSquare(fromSquare)) return false;
-
   const to = chooseSpinnerDestination(fromSquare);
   if (!to || to === fromSquare) return false;
 
@@ -523,15 +519,14 @@ function updateSpin(t) {
 }
 
 /* ===============================
-   TOKEN (bottom-right)  ✅ RESTORED
+   TOKEN (bottom-right) — adjustable
 =============================== */
 function tokenAnchor(t) {
-  const a = squareCornerAnchor(playerSquare, "br");
+  const a = squareCornerAnchor(playerSquare, "br", TOKEN_PAD_FRAC);
   let cx = a.x;
   let cy = a.y;
   const r = a.r;
 
-  // Wiggle while spinning
   if (spinActive) {
     const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
     const amp = r.w * 0.06 * (1 - p);
@@ -563,10 +558,10 @@ function drawToken(t) {
 }
 
 /* ===============================
-   PACK B — TETHER STRING
+   TETHER STRING (pin adjustable)
 =============================== */
 function drawTetherString(t) {
-  const a = squareCornerAnchor(1, "br"); // pin bottom-right of square 1
+  const a = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
   const b = tokenAnchor(t);
 
   const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
@@ -600,13 +595,11 @@ function drawTetherString(t) {
 
     const x = a.x + dx * u + wx;
     const y = a.y + dy * u + wy;
-
     ctx.lineTo(x, y);
   }
 
   ctx.stroke();
 
-  // Knot at square 1
   ctx.fillStyle = STRING_KNOT_COLOR;
   ctx.beginPath();
   ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
@@ -616,7 +609,7 @@ function drawTetherString(t) {
 }
 
 /* ===============================
-   HELP OVERLAY
+   HELP OVERLAY (JSON-driven)
 =============================== */
 function toggleHelp(open = !helpOpen) {
   helpOpen = !!open;
@@ -625,27 +618,32 @@ function toggleHelp(open = !helpOpen) {
   }
 }
 
-function formatHelpLines(tNow) {
-  const lines = [
-    "Convalescent Snakes & Ladders — controls",
-    "",
-    "→ / ↑  : forward 1 square",
-    "← / ↓  : back 1 square",
-    "Space  : forward 1 square",
-    "",
-    "⟳ Spinner squares: outcome is random.",
-    "Hospital pull: sometimes you are snapped back to square 1.",
-    `Recall: if pulled back, press R within ${Math.round(RECALL_WINDOW_MS/1000)}s to return.`,
-    "",
-    "? or H : toggle this help",
-    "Esc    : close help"
-  ];
+function getHelpLines(tNow) {
+  const secs = Math.round(RECALL_WINDOW_MS / 1000);
 
-  if (canRecall(tNow)) {
-    lines.splice(9, 0, "");
-    lines.splice(10, 0, "↩ Recall available now: press R.");
+  if (helpCopy && Array.isArray(helpCopy.lines)) {
+    const title = helpCopy.title || "Convalescent Snakes & Ladders — controls";
+    const lines = helpCopy.lines.map(s => String(s).replaceAll("{RECALL_SECONDS}", String(secs)));
+    return { title, lines };
   }
-  return lines;
+
+  // fallback
+  return {
+    title: "Convalescent Snakes & Ladders — controls",
+    lines: [
+      "→ / ↑  : forward 1 square",
+      "← / ↓  : back 1 square",
+      "Space  : forward 1 square",
+      "",
+      "⟳ Spinner squares: outcome is random.",
+      "Hospital pull: sometimes you are snapped back to square 1.",
+      `Recall: if pulled back, press R within ${secs}s to return.`,
+      "Home / 1 : go to square 1 now",
+      "",
+      "? / H : toggle this help",
+      "Esc   : close help"
+    ]
+  };
 }
 
 function drawHelpOverlay(t) {
@@ -658,50 +656,50 @@ function drawHelpOverlay(t) {
 
   ctx.save();
 
-  // Dim background
   ctx.globalAlpha = 0.62;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, S, S);
 
-  // Card
   ctx.globalAlpha = 0.96;
   ctx.fillStyle = "#fff";
   ctx.fillRect(pad, pad, boxW, boxH);
 
-  // Border
   ctx.globalAlpha = 0.9;
   ctx.strokeStyle = "rgba(0,0,0,0.65)";
   ctx.lineWidth = Math.max(2, S * 0.006);
   ctx.strokeRect(pad, pad, boxW, boxH);
 
-  // Text
-  const lines = formatHelpLines(t);
+  const { title, lines } = getHelpLines(t);
   const left = pad + Math.max(16, S * 0.05);
   let y = pad + Math.max(16, S * 0.05);
 
   const titleSize = Math.max(16, Math.round(S * 0.045));
   const bodySize  = Math.max(12, Math.round(S * 0.032));
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  // Title
+  ctx.fillStyle = "rgba(0,0,0,0.92)";
+  ctx.font = `700 ${titleSize}px system-ui`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(title, left, y);
+  y += titleSize * 1.25;
+
+  // Body
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.font = `${bodySize}px system-ui`;
+
+  for (const line of lines) {
     if (line === "") { y += bodySize * 0.75; continue; }
-
-    if (i === 0) {
-      ctx.fillStyle = "rgba(0,0,0,0.92)";
-      ctx.font = `700 ${titleSize}px system-ui`;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      ctx.fillText(line, left, y);
-      y += titleSize * 1.25;
-      continue;
-    }
-
-    ctx.fillStyle = "rgba(0,0,0,0.85)";
-    ctx.font = `${bodySize}px system-ui`;
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
     ctx.fillText(line, left, y);
     y += bodySize * 1.25;
+  }
+
+  // Context line if recall is available
+  if (canRecall(t)) {
+    y += bodySize * 0.6;
+    ctx.fillStyle = "rgba(0,0,0,0.9)";
+    ctx.font = `700 ${bodySize}px system-ui`;
+    ctx.fillText("↩ Recall available now: press R.", left, y);
   }
 
   ctx.restore();
@@ -752,58 +750,28 @@ function draw(t) {
   drawTetherString(t);
   drawToken(t);
 
-  // Recall hint near the knot (only when R will work)
-if (canRecall(t)) {
-  const pin = squareCornerAnchor(1, "br");
+  // Recall hint — position controlled by RECALL_LABEL_* knobs
+  if (canRecall(t)) {
+    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
+    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
+    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
+    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
 
-  // Move it inward + upward a bit so it doesn't collide with art/string knot
-  const x = pin.x - pin.r.w * 0.14;
-  const y = pin.y - pin.r.w * 0.10;
+    ctx.save();
+    ctx.font = `800 ${fontPx}px system-ui`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
 
-  const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
+    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText("↩ R", x, y);
 
-  ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fillText("↩ R", x, y);
+    ctx.restore();
+  }
 
-  // HIGH contrast outline + fill (works on busy tile art)
-  ctx.font = `800 ${fontPx}px system-ui`;
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-
-  // outline (dark)
-  ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.strokeText("↩ R", x, y);
-
-  // fill (bright)
-  ctx.fillStyle = "rgba(255,255,255,0.95)";
-  ctx.fillText("↩ R", x, y);
-
-  // optional tiny pill background for *maximum* readability
-  // (uncomment if you want the label to always pop)
-  /*
-  const metrics = ctx.measureText("↩ R");
-  const padX = fontPx * 0.55;
-  const padY = fontPx * 0.35;
-  const w = metrics.width + padX * 2;
-  const h = fontPx + padY * 2;
-
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillRect(x - w, y - h * 0.88, w, h);
-
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
-  ctx.strokeText("↩ R", x - padX, y - padY);
-  ctx.fillStyle = "rgba(255,255,255,0.97)";
-  ctx.fillText("↩ R", x - padX, y - padY);
-  */
-
-  ctx.restore();
-}
-
-
-  // Tiny persistent hint to discover help (subtle)
+  // tiny persistent hint
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -813,12 +781,11 @@ if (canRecall(t)) {
   ctx.fillText("? for help", S - Math.max(10, S * 0.02), Math.max(6, S * 0.012));
   ctx.restore();
 
-  // Help overlay on top
   drawHelpOverlay(t);
 }
 
 /* ===============================
-   MOVEMENT (1 square at a time)
+   MOVEMENT
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
@@ -837,7 +804,7 @@ function attemptStep(delta, tNow) {
 }
 
 /* ===============================
-   INPUT (arrow keys + space + R recall + ? help)
+   INPUT (adds Home/1)
 =============================== */
 document.addEventListener("keydown", (e) => {
   const tNow = performance.now();
@@ -849,6 +816,7 @@ document.addEventListener("keydown", (e) => {
   const isHelp = (key === "?" || key === "h");
   const isEsc = (code === "Escape" || key === "escape");
   const isRecall = (key === "r");
+  const isHome = (code === "Home" || key === "home" || key === "1");
 
   const isSpace = (code === "Space") || (rawKey === " ") || (rawKey === "Spacebar");
   const isForward =
@@ -859,16 +827,16 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  if (!(isHelp || isEsc || isRecall || isSpace || isForward || isBack)) return;
+  if (!(isHelp || isEsc || isRecall || isHome || isSpace || isForward || isBack)) return;
 
   e.preventDefault();
 
   if (isHelp) { toggleHelp(!helpOpen); return; }
   if (isEsc)  { toggleHelp(false); return; }
 
-  // when help is open, ignore movement
   if (helpOpen) return;
 
+  if (isHome) { goHome(tNow); return; }
   if (isRecall) { attemptRecall(tNow); return; }
 
   if (isBack) attemptStep(-1, tNow);
@@ -883,8 +851,8 @@ function tick(t) {
   if (stringJolt < 0.001) stringJolt = 0;
 
   updateSpin(t);
-
   draw(t);
+
   rafId = requestAnimationFrame(tick);
 }
 
@@ -906,7 +874,8 @@ async function start() {
   try {
     await Promise.all([
       loadSquares(),
-      loadJumps()
+      loadJumps(),
+      loadHelpCopy()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
