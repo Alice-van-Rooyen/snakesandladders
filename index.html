@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>alice is excited</title>
+  <title>alice is optimistic</title>
 
   <style>
     body {
@@ -84,7 +84,7 @@ let recallSquare = null;           // can attempt to return to this
 let recallExpiresAt = 0;           // memory window (ms epoch from performance.now)
 const RECALL_WINDOW_MS = 6000;     // “if you can remember it”
 
-// Help overlay state (Pack: ? overlay)
+// Help overlay state ( ? overlay )
 let helpOpen = false;
 const HELP_SEEN_KEY = "snakes_help_seen_v1";
 
@@ -146,11 +146,8 @@ function squareCornerAnchor(n, corner /* "br" | "bl" */) {
   const r = cellRect(row, col);
   const pad = r.w * 0.10;
 
-  if (corner === "bl") {
-    return { x: r.x + pad, y: r.y + r.h - pad, r };
-  }
-  // default "br"
-  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r };
+  if (corner === "bl") return { x: r.x + pad, y: r.y + r.h - pad, r };
+  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r }; // default "br"
 }
 
 function squareCenter(n) {
@@ -185,13 +182,12 @@ async function loadSquares() {
     }
   }
 
-  // Preload the unique tile images so we don’t get “only 3 squares”
+  // Preload unique tile images
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
 }
 
 async function loadJumps() {
-  // Optional file. If absent, game still runs with no spinners.
   try {
     const res = await fetch("data/jumps.json?v=" + Date.now());
     if (!res.ok) throw new Error("jumps.json not ok");
@@ -200,7 +196,6 @@ async function loadJumps() {
     spinnerMap = {};
     spinnerSquares = new Set();
 
-    // NEW format: spinners: { "from": [to1,to2,...] }
     if (data.spinners && typeof data.spinners === "object") {
       for (const [k, arr] of Object.entries(data.spinners)) {
         const from = Number(k);
@@ -217,7 +212,6 @@ async function loadJumps() {
       }
     }
 
-    // Back-compat: jumps: { "from": to }
     if (data.jumps && typeof data.jumps === "object") {
       for (const [k, v] of Object.entries(data.jumps)) {
         const from = Number(k);
@@ -232,7 +226,7 @@ async function loadJumps() {
         }
       }
     }
-  } catch (err) {
+  } catch {
     spinnerMap = {};
     spinnerSquares = new Set();
   }
@@ -370,82 +364,19 @@ function recordMove(toSquare) {
 
 function getVisibleSet() {
   const vis = new Set();
-
-  // Square 1 is ALWAYS visible + legible (“still attached to hospital”)
-  vis.add(1);
-
-  // current
+  vis.add(1); // Square 1 ALWAYS visible + legible
   vis.add(playerSquare);
 
-  // ahead
-  for (let i = 1; i <= AHEAD; i++) {
-    vis.add(Math.min(100, playerSquare + i));
-  }
+  for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
 
-  // behind: last N visited squares
   for (let i = visited.length - 1; i >= 0 && vis.size < (2 + AHEAD + TRAIL_BEHIND); i--) {
     vis.add(visited[i]);
   }
-
   return vis;
 }
 
 /* ===============================
-   PACK B — TETHER STRING
-=============================== */
-function drawTetherString(t) {
-  // Pin is bottom-right of square 1
-  const a = squareCornerAnchor(1, "br");
-  const b = tokenAnchor(t);
-
-  const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
-  const segs = 14;
-
-  ctx.save();
-  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0028);
-  ctx.strokeStyle = STRING_COLOR;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len = Math.hypot(dx, dy) || 1;
-
-  const px = -dy / len;
-  const py = dx / len;
-
-  const baseFreq = 6 + Math.min(10, len / 120);
-  const phase = (t * 0.004) + (len * 0.002);
-
-  for (let i = 1; i <= segs; i++) {
-    const u = i / segs;
-    const ease = Math.sin(Math.PI * u);
-
-    const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
-    const wy = py * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
-
-    const x = a.x + dx * u + wx;
-    const y = a.y + dy * u + wy;
-
-    ctx.lineTo(x, y);
-  }
-
-  ctx.stroke();
-
-  // Knot at square 1
-  ctx.fillStyle = STRING_KNOT_COLOR;
-  ctx.beginPath();
-  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-/* ===============================
-   PACK A — SPINNABLE SNAKES & LADDERS (random)
+   SPINNABLE SNAKES & LADDERS (random)
 =============================== */
 function isSpinnerSquare(n) {
   return spinnerSquares.has(n);
@@ -488,15 +419,12 @@ function chooseSpinnerDestination(fromSquare) {
 function hospitalPullMaybe(tNow) {
   if (spinActive) return false;
   if (playerSquare === 1) return false;
-
   if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
 
-  // Store where you were and allow recall briefly
   lastSafeSquare = playerSquare;
   recallSquare = lastSafeSquare;
   recallExpiresAt = tNow + RECALL_WINDOW_MS;
 
-  // Start a “spin” at the current square, destination is hospital (1)
   spinActive = true;
   spinSquare = playerSquare;
   spinStartT = tNow;
@@ -519,15 +447,12 @@ function attemptRecall(tNow) {
   if (!canRecall(tNow)) return;
 
   const target = recallSquare;
-
-  // one-shot
   recallSquare = null;
   recallExpiresAt = 0;
 
   recordMove(target);
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
-  // If the target is a spinner, it can still mess with you.
   startSpinIfNeeded(playerSquare);
 }
 
@@ -598,7 +523,7 @@ function updateSpin(t) {
 }
 
 /* ===============================
-   TOKEN (bottom-right)
+   TOKEN (bottom-right)  ✅ RESTORED
 =============================== */
 function tokenAnchor(t) {
   const a = squareCornerAnchor(playerSquare, "br");
@@ -606,6 +531,7 @@ function tokenAnchor(t) {
   let cy = a.y;
   const r = a.r;
 
+  // Wiggle while spinning
   if (spinActive) {
     const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
     const amp = r.w * 0.06 * (1 - p);
@@ -634,6 +560,59 @@ function drawToken(t) {
     ctx.lineWidth = 2;
     ctx.stroke();
   }
+}
+
+/* ===============================
+   PACK B — TETHER STRING
+=============================== */
+function drawTetherString(t) {
+  const a = squareCornerAnchor(1, "br"); // pin bottom-right of square 1
+  const b = tokenAnchor(t);
+
+  const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
+  const segs = 14;
+
+  ctx.save();
+  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0028);
+  ctx.strokeStyle = STRING_COLOR;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+
+  const px = -dy / len;
+  const py = dx / len;
+
+  const baseFreq = 6 + Math.min(10, len / 120);
+  const phase = (t * 0.004) + (len * 0.002);
+
+  for (let i = 1; i <= segs; i++) {
+    const u = i / segs;
+    const ease = Math.sin(Math.PI * u);
+
+    const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+    const wy = py * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+
+    const x = a.x + dx * u + wx;
+    const y = a.y + dy * u + wy;
+
+    ctx.lineTo(x, y);
+  }
+
+  ctx.stroke();
+
+  // Knot at square 1
+  ctx.fillStyle = STRING_KNOT_COLOR;
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 /* ===============================
@@ -666,7 +645,6 @@ function formatHelpLines(tNow) {
     lines.splice(9, 0, "");
     lines.splice(10, 0, "↩ Recall available now: press R.");
   }
-
   return lines;
 }
 
@@ -706,11 +684,7 @@ function drawHelpOverlay(t) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-
-    if (line === "") {
-      y += bodySize * 0.75;
-      continue;
-    }
+    if (line === "") { y += bodySize * 0.75; continue; }
 
     if (i === 0) {
       ctx.fillStyle = "rgba(0,0,0,0.92)";
@@ -778,20 +752,58 @@ function draw(t) {
   drawTetherString(t);
   drawToken(t);
 
-  // Recall hint near the knot (only when R will actually work)
-  if (canRecall(t)) {
-    const pin = squareCornerAnchor(1, "br");
-    ctx.save();
-    ctx.globalAlpha = 0.75;
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
-    ctx.font = `${Math.max(11, Math.round(pin.r.w * 0.18))}px system-ui`;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "bottom";
-    ctx.fillText("↩ R", pin.x - pin.r.w * 0.08, pin.y - pin.r.w * 0.02);
-    ctx.restore();
-  }
+  // Recall hint near the knot (only when R will work)
+if (canRecall(t)) {
+  const pin = squareCornerAnchor(1, "br");
 
-  // Tiny persistent hint to discover help (kept subtle)
+  // Move it inward + upward a bit so it doesn't collide with art/string knot
+  const x = pin.x - pin.r.w * 0.14;
+  const y = pin.y - pin.r.w * 0.10;
+
+  const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
+
+  ctx.save();
+
+  // HIGH contrast outline + fill (works on busy tile art)
+  ctx.font = `800 ${fontPx}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+
+  // outline (dark)
+  ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.strokeText("↩ R", x, y);
+
+  // fill (bright)
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.fillText("↩ R", x, y);
+
+  // optional tiny pill background for *maximum* readability
+  // (uncomment if you want the label to always pop)
+  /*
+  const metrics = ctx.measureText("↩ R");
+  const padX = fontPx * 0.55;
+  const padY = fontPx * 0.35;
+  const w = metrics.width + padX * 2;
+  const h = fontPx + padY * 2;
+
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(x - w, y - h * 0.88, w, h);
+
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+  ctx.strokeText("↩ R", x - padX, y - padY);
+  ctx.fillStyle = "rgba(255,255,255,0.97)";
+  ctx.fillText("↩ R", x - padX, y - padY);
+  */
+
+  ctx.restore();
+}
+
+
+  // Tiny persistent hint to discover help (subtle)
   ctx.save();
   ctx.globalAlpha = 0.55;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -801,7 +813,7 @@ function draw(t) {
   ctx.fillText("? for help", S - Math.max(10, S * 0.02), Math.max(6, S * 0.012));
   ctx.restore();
 
-  // Help overlay draws on top of everything
+  // Help overlay on top
   drawHelpOverlay(t);
 }
 
@@ -851,139 +863,17 @@ document.addEventListener("keydown", (e) => {
 
   e.preventDefault();
 
-  // Help controls
-  if (isHelp) {
-    toggleHelp(!helpOpen);
-    return;
-  }
-  if (isEsc) {
-    toggleHelp(false);
-    return;
-  }
+  if (isHelp) { toggleHelp(!helpOpen); return; }
+  if (isEsc)  { toggleHelp(false); return; }
 
-  // When help is open, we ignore movement so people can read without the board shifting under them
+  // when help is open, ignore movement
   if (helpOpen) return;
 
-  if (isRecall) {
-    attemptRecall(tNow);
-    return;
-  }
+  if (isRecall) { attemptRecall(tNow); return; }
 
   if (isBack) attemptStep(-1, tNow);
   else attemptStep(+1, tNow);
 });
-
-/* ===============================
-   HOSPITAL PULL + RECALL
-=============================== */
-function hospitalPullMaybe(tNow) {
-  if (spinActive) return false;
-  if (playerSquare === 1) return false;
-
-  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
-
-  lastSafeSquare = playerSquare;
-  recallSquare = lastSafeSquare;
-  recallExpiresAt = tNow + RECALL_WINDOW_MS;
-
-  spinActive = true;
-  spinSquare = playerSquare;
-  spinStartT = tNow;
-  pendingJumpTo = 1;
-  inputLocked = true;
-
-  stringJolt = Math.min(1.2, stringJolt + 0.55);
-  return true;
-}
-
-function canRecall(tNow) {
-  if (!recallSquare) return false;
-  if (tNow > recallExpiresAt) return false;
-  if (playerSquare !== 1) return false;
-  if (inputLocked) return false;
-  return true;
-}
-
-function attemptRecall(tNow) {
-  if (!canRecall(tNow)) return;
-
-  const target = recallSquare;
-
-  recallSquare = null;
-  recallExpiresAt = 0;
-
-  recordMove(target);
-  stringJolt = Math.min(1.0, stringJolt + 0.35);
-
-  startSpinIfNeeded(playerSquare);
-}
-
-/* ===============================
-   SPIN LOGIC (spinners)
-=============================== */
-function startSpinIfNeeded(fromSquare) {
-  if (!isSpinnerSquare(fromSquare)) return false;
-
-  const to = chooseSpinnerDestination(fromSquare);
-  if (!to || to === fromSquare) return false;
-
-  spinActive = true;
-  spinSquare = fromSquare;
-  spinStartT = performance.now();
-  pendingJumpTo = to;
-  inputLocked = true;
-  return true;
-}
-
-function drawSpinnerOverSquare(n, t) {
-  if (!spinActive || spinSquare !== n) return;
-
-  const { x, y, r } = squareCenter(n);
-  const radius = r.w * 0.22;
-
-  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
-  const rot = (t - spinStartT) * 0.018;
-
-  ctx.save();
-  ctx.globalAlpha = 0.18;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.restore();
-
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-
-  ctx.lineWidth = Math.max(2, r.w * 0.05);
-  ctx.strokeStyle = "rgba(0,0,0,0.75)";
-  ctx.lineCap = "round";
-
-  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, arcSpan);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-function updateSpin(t) {
-  if (!spinActive) return;
-
-  const elapsed = t - spinStartT;
-  if (elapsed < spinDurationMs) return;
-
-  spinActive = false;
-  const to = pendingJumpTo;
-  pendingJumpTo = null;
-
-  recordMove(to);
-  stringJolt = Math.min(1.2, stringJolt + 0.45);
-
-  // Chain spinners allowed
-  if (!startSpinIfNeeded(playerSquare)) {
-    inputLocked = false;
-  }
-}
 
 /* ===============================
    TICK / LOOP
@@ -1006,7 +896,6 @@ function maybeOpenHelpOnFirstVisit() {
     const seen = localStorage.getItem(HELP_SEEN_KEY);
     if (!seen) toggleHelp(true);
   } catch {
-    // if storage blocked, just show it once per page load
     toggleHelp(true);
   }
 }
