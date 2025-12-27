@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Convalescent Snakes & Ladders</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -49,10 +49,11 @@ const AHEAD = 1;
 const TRAIL_BEHIND = 6;
 let visited = [1];
 
-// Game data
-let squareInfo = {};
-let tiles = {};
-let tileSets = {};
+// --- DATA LAYERS (separated) ---
+let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // from data/tiles.json
+let squareText = {};                                               // from data/text.json (keys "1".."100")
+
+// Tile mapping (built from tileConfig)
 let tileBySquare = {};
 
 // Spinners
@@ -77,10 +78,10 @@ let recallSquare = null;
 let recallExpiresAt = 0;
 const RECALL_WINDOW_MS = 6000;
 
-// Help overlay
+// Help overlay (JSON-driven)
 let helpOpen = false;
 const HELP_SEEN_KEY = "snakes_help_seen_v1";
-let helpCopy = null; // loaded from JSON if available
+let helpCopy = null; // data/help.json
 
 // Tether dynamics
 let stringJolt = 0;
@@ -90,10 +91,10 @@ const STRING_COLOR = "rgba(184, 38, 60, 0.55)";
 const STRING_KNOT_COLOR = "rgba(184, 38, 60, 0.85)";
 
 // --- TUNING KNOBS (art-friendly) ---
-let TOKEN_PAD_FRAC = 0.12;  // ↑ increase to lift token (was 0.10-ish)
-let PIN_PAD_FRAC   = 0.10;  // hospital pin/knot anchor
-let RECALL_LABEL_X_FRAC = 0.14; // how far left from pin (fraction of cell width)
-let RECALL_LABEL_Y_FRAC = 0.08; // how far UP from pin (smaller = lower label)
+let TOKEN_PAD_FRAC = 0.12;         // increase to lift token
+let PIN_PAD_FRAC   = 0.10;         // hospital knot anchor
+let RECALL_LABEL_X_FRAC = 0.14;    // move label left
+let RECALL_LABEL_Y_FRAC = 0.08;    // smaller = lower label
 
 // Image cache
 const imageCache = new Map();
@@ -127,8 +128,10 @@ function squareToRowCol(n) {
   const index = n - 1;
   const rowFromBottom = Math.floor(index / 10);
   const colInRow = index % 10;
+
   const row = 9 - rowFromBottom;
   const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
+
   return { row, col };
 }
 
@@ -154,34 +157,46 @@ function squareCenter(n) {
 }
 
 /* ===============================
-   JSON LOADING
+   JSON LOADING (SEPARATED FILES)
 =============================== */
-async function loadSquares() {
-  const res = await fetch("data/squares.json?v=" + Date.now());
+async function loadTiles() {
+  const res = await fetch("data/tiles.json?v=" + Date.now());
   const data = await res.json();
 
-  squareInfo = data.squares || {};
-  tiles = data.tiles || {};
-  tileSets = data.tileSets || {};
+  tileConfig = {
+    defaultTile: data.defaultTile || "blue",
+    tiles: data.tiles || {},
+    tileSets: data.tileSets || {}
+  };
 
-  const defaultName = data.defaultTile || "blue";
-  const defaultPath = tiles[defaultName];
+  const defaultPath = tileConfig.tiles[tileConfig.defaultTile];
 
+  // Build tileBySquare for ALL 100 squares
   tileBySquare = {};
   for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
 
-  for (const colourName of Object.keys(tileSets)) {
-    const path = tiles[colourName];
-    for (const n of (tileSets[colourName] || [])) {
+  // Apply overrides
+  for (const colourName of Object.keys(tileConfig.tileSets)) {
+    const path = tileConfig.tiles[colourName];
+    for (const n of (tileConfig.tileSets[colourName] || [])) {
       tileBySquare[n] = path;
     }
   }
 
+  // Preload unique tile images
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
 }
 
+async function loadText() {
+  // data/text.json: keys can be "1".."100" (strings). We'll access with String(n).
+  const res = await fetch("data/text.json?v=" + Date.now());
+  squareText = await res.json();
+  if (!squareText || typeof squareText !== "object") squareText = {};
+}
+
 async function loadJumps() {
+  // Optional file. If absent, game still runs with no spinners.
   try {
     const res = await fetch("data/jumps.json?v=" + Date.now());
     if (!res.ok) throw new Error("jumps.json not ok");
@@ -190,6 +205,7 @@ async function loadJumps() {
     spinnerMap = {};
     spinnerSquares = new Set();
 
+    // NEW format: spinners: { "from": [to1,to2,...] }
     if (data.spinners && typeof data.spinners === "object") {
       for (const [k, arr] of Object.entries(data.spinners)) {
         const from = Number(k);
@@ -200,11 +216,13 @@ async function loadJumps() {
           .filter(to => Number.isFinite(to) && to >= 1 && to <= 100 && to !== from);
 
         if (!list.length) continue;
+
         spinnerMap[from] = list;
         spinnerSquares.add(from);
       }
     }
 
+    // Back-compat: jumps: { "from": to }
     if (data.jumps && typeof data.jumps === "object") {
       for (const [k, v] of Object.entries(data.jumps)) {
         const from = Number(k);
@@ -230,8 +248,7 @@ async function loadHelpCopy() {
   try {
     const res = await fetch("data/help.json?v=" + Date.now());
     if (!res.ok) throw new Error("help.json not ok");
-    const data = await res.json();
-    helpCopy = data;
+    helpCopy = await res.json();
   } catch {
     helpCopy = null;
   }
@@ -249,18 +266,21 @@ function preloadImages(paths) {
 }
 
 /* ===============================
-   TILE + TEXT
+   TILE + TEXT DRAWING
 =============================== */
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
+
   const pad = r.w * 0.06;
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
+// Deterministic scramble per square
 function scrambleText(text, seed) {
   let s = seed * 99991;
   const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+
   return [...text].map(ch => {
     if (/[a-z]/.test(ch)) return String.fromCharCode(97 + Math.floor(rand() * 26));
     if (/[A-Z]/.test(ch)) return String.fromCharCode(65 + Math.floor(rand() * 26));
@@ -270,14 +290,20 @@ function scrambleText(text, seed) {
 
 function fogAlphaForSquare(n) {
   const d = Math.abs(n - playerSquare);
-  const near = 0.55, far = 0.92, start = 2, end = 20;
+  const near = 0.55;
+  const far  = 0.92;
+  const start = 2;
+  const end   = 20;
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
 
 function fogVeilForSquare(n) {
   const d = Math.abs(n - playerSquare);
-  const near = 0.06, far = 0.22, start = 2, end = 20;
+  const near = 0.06;
+  const far  = 0.22;
+  const start = 2;
+  const end   = 20;
   const t = Math.max(0, Math.min(1, (d - start) / (end - start)));
   return near + (far - near) * t;
 }
@@ -298,18 +324,21 @@ function drawText(text, r, alpha = 1) {
   while (fontSize >= 6) {
     ctx.font = `${fontSize}px system-ui`;
 
-    const paragraphs = text.split("\n");
+    const paragraphs = String(text).split("\n");
     const lines = [];
 
     for (const para of paragraphs) {
       const words = para.split(" ");
       let line = "";
+
       for (const w of words) {
         const test = line ? `${line} ${w}` : w;
         if (ctx.measureText(test).width > maxWidth) {
           if (line) lines.push(line);
           line = w;
-        } else line = test;
+        } else {
+          line = test;
+        }
       }
       if (line) lines.push(line);
       lines.push({ type: "gap" });
@@ -333,8 +362,10 @@ function drawText(text, r, alpha = 1) {
       ctx.restore();
       return;
     }
+
     fontSize--;
   }
+
   ctx.restore();
 }
 
@@ -344,18 +375,22 @@ function drawText(text, r, alpha = 1) {
 function recordMove(toSquare) {
   toSquare = Math.max(1, Math.min(100, toSquare));
   const step = (toSquare > playerSquare) ? 1 : -1;
+
   while (playerSquare !== toSquare) {
     playerSquare += step;
     visited.push(playerSquare);
   }
+
   if (visited.length > 500) visited = visited.slice(-250);
 }
 
 function getVisibleSet() {
   const vis = new Set();
-  vis.add(1);
+  vis.add(1); // hospital square always legible
   vis.add(playerSquare);
+
   for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
+
   for (let i = visited.length - 1; i >= 0 && vis.size < (2 + AHEAD + TRAIL_BEHIND); i--) {
     vis.add(visited[i]);
   }
@@ -363,12 +398,14 @@ function getVisibleSet() {
 }
 
 /* ===============================
-   SPINNABLE SNAKES & LADDERS (random)
+   SPINNABLE SNAKES & LADDERS
 =============================== */
 function isSpinnerSquare(n) { return spinnerSquares.has(n); }
 
 function drawSpinnerHint(n, rect, visible) {
-  if (!isSpinnerSquare(n) || !visible) return;
+  if (!isSpinnerSquare(n)) return;
+  if (!visible) return;
+
   ctx.save();
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -399,15 +436,6 @@ function chooseSpinnerDestination(fromSquare) {
 /* ===============================
    HOSPITAL PULL + RECALL + HOME
 =============================== */
-function hospitalPullMaybe(tNow) {
-  if (spinActive) return false;
-  if (playerSquare === 1) return false;
-  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
-
-  beginReturnToHospital(tNow, /*setRecall=*/true);
-  return true;
-}
-
 function beginReturnToHospital(tNow, setRecall) {
   if (playerSquare !== 1 && setRecall) {
     lastSafeSquare = playerSquare;
@@ -422,6 +450,21 @@ function beginReturnToHospital(tNow, setRecall) {
   inputLocked = true;
 
   stringJolt = Math.min(1.2, stringJolt + 0.55);
+}
+
+function hospitalPullMaybe(tNow) {
+  if (spinActive) return false;
+  if (playerSquare === 1) return false;
+  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
+
+  beginReturnToHospital(tNow, true);
+  return true;
+}
+
+function goHome(tNow) {
+  if (inputLocked) return;
+  if (playerSquare === 1) return;
+  beginReturnToHospital(tNow, true);
 }
 
 function canRecall(tNow) {
@@ -445,19 +488,12 @@ function attemptRecall(tNow) {
   startSpinIfNeeded(playerSquare);
 }
 
-// Home command: always returns you to 1 (with recall set)
-function goHome(tNow) {
-  if (inputLocked) return;
-  if (playerSquare === 1) return;
-
-  beginReturnToHospital(tNow, /*setRecall=*/true);
-}
-
 /* ===============================
    SPIN LOGIC (spinners + hospital return)
 =============================== */
 function startSpinIfNeeded(fromSquare) {
   if (!isSpinnerSquare(fromSquare)) return false;
+
   const to = chooseSpinnerDestination(fromSquare);
   if (!to || to === fromSquare) return false;
 
@@ -627,7 +663,6 @@ function getHelpLines(tNow) {
     return { title, lines };
   }
 
-  // fallback
   return {
     title: "Convalescent Snakes & Ladders — controls",
     lines: [
@@ -638,7 +673,7 @@ function getHelpLines(tNow) {
       "⟳ Spinner squares: outcome is random.",
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
-      "Home / 1 : go to square 1 now",
+      "Home / 1 : return to square 1",
       "",
       "? / H : toggle this help",
       "Esc   : close help"
@@ -670,21 +705,23 @@ function drawHelpOverlay(t) {
   ctx.strokeRect(pad, pad, boxW, boxH);
 
   const { title, lines } = getHelpLines(t);
+
   const left = pad + Math.max(16, S * 0.05);
   const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
 
-  // Typography tuning
+  // Typography tuning (smaller/denser)
   const titleSize = Math.max(18, Math.round(S * 0.038));
   const bodySize  = Math.max(13, Math.round(S * 0.026));
   const lineGap   = Math.round(bodySize * 0.6);
 
   // Title
+  ctx.globalAlpha = 1;
   ctx.fillStyle = "rgba(0,0,0,0.92)";
   ctx.font = `700 ${titleSize}px system-ui`;
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillText(title, left, y);
+  ctx.fillText(title, left, y, maxTextWidth);
   y += titleSize * 1.4;
 
   // Body
@@ -702,7 +739,7 @@ function drawHelpOverlay(t) {
     y += bodySize * 0.6;
     ctx.fillStyle = "rgba(0,0,0,0.9)";
     ctx.font = `700 ${bodySize}px system-ui`;
-    ctx.fillText("↩ Recall available now: press R.", left, y);
+    ctx.fillText("↩ Recall available now: press R.", left, y, maxTextWidth);
   }
 
   ctx.restore();
@@ -728,23 +765,21 @@ function draw(t) {
     drawTile(tileBySquare[n], rect);
     drawSpinnerHint(n, rect, visible.has(n));
 
-    const entry = squareInfo[n];
-    if (!entry || !entry.text) {
-      drawSpinnerOverSquare(n, t);
-      continue;
-    }
+    const text = squareText[String(n)] || "";
 
-    if (n === 1 || visible.has(n)) {
-      drawText(entry.text, rect);
-    } else {
-      const a = fogAlphaForSquare(n);
-      drawText(scrambleText(entry.text, n), rect, a);
+    if (text) {
+      if (n === 1 || visible.has(n)) {
+        drawText(text, rect);
+      } else {
+        const a = fogAlphaForSquare(n);
+        drawText(scrambleText(text, n), rect, a);
 
-      ctx.save();
-      ctx.globalAlpha = fogVeilForSquare(n);
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = fogVeilForSquare(n);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+      }
     }
 
     drawSpinnerOverSquare(n, t);
@@ -771,6 +806,7 @@ function draw(t) {
 
     ctx.fillStyle = "rgba(255,255,255,0.95)";
     ctx.fillText("↩ R", x, y);
+
     ctx.restore();
   }
 
@@ -788,7 +824,7 @@ function draw(t) {
 }
 
 /* ===============================
-   MOVEMENT
+   MOVEMENT (1 square at a time)
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
@@ -807,7 +843,7 @@ function attemptStep(delta, tNow) {
 }
 
 /* ===============================
-   INPUT (adds Home/1)
+   INPUT
 =============================== */
 document.addEventListener("keydown", (e) => {
   const tNow = performance.now();
@@ -837,6 +873,7 @@ document.addEventListener("keydown", (e) => {
   if (isHelp) { toggleHelp(!helpOpen); return; }
   if (isEsc)  { toggleHelp(false); return; }
 
+  // when help is open, ignore movement
   if (helpOpen) return;
 
   if (isHome) { goHome(tNow); return; }
@@ -876,7 +913,8 @@ async function start() {
 
   try {
     await Promise.all([
-      loadSquares(),
+      loadTiles(),
+      loadText(),
       loadJumps(),
       loadHelpCopy()
     ]);
