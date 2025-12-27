@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Convalescent Snakes and Ladders</title>
+  <title>alice is excited</title>
 
   <style>
     body {
@@ -83,6 +83,10 @@ let lastSafeSquare = 1;            // last non-1 square you were on before a pul
 let recallSquare = null;           // can attempt to return to this
 let recallExpiresAt = 0;           // memory window (ms epoch from performance.now)
 const RECALL_WINDOW_MS = 6000;     // “if you can remember it”
+
+// Help overlay state (Pack: ? overlay)
+let helpOpen = false;
+const HELP_SEEN_KEY = "snakes_help_seen_v1";
 
 // Tether “string” dynamics
 let stringJolt = 0;
@@ -479,7 +483,7 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 /* ===============================
-   HOSPITAL PULL + RECALL (fixed)
+   HOSPITAL PULL + RECALL
 =============================== */
 function hospitalPullMaybe(tNow) {
   if (spinActive) return false;
@@ -504,8 +508,6 @@ function hospitalPullMaybe(tNow) {
 }
 
 function canRecall(tNow) {
-  // FIX: don’t tie recall to the tiny fog/visible window (it made recall almost never available).
-  // “If you can remember it” is now purely time-limited.
   if (!recallSquare) return false;
   if (tNow > recallExpiresAt) return false;
   if (playerSquare !== 1) return false;
@@ -635,6 +637,103 @@ function drawToken(t) {
 }
 
 /* ===============================
+   HELP OVERLAY
+=============================== */
+function toggleHelp(open = !helpOpen) {
+  helpOpen = !!open;
+  if (helpOpen) {
+    try { localStorage.setItem(HELP_SEEN_KEY, "1"); } catch {}
+  }
+}
+
+function formatHelpLines(tNow) {
+  const lines = [
+    "Convalescent Snakes & Ladders — controls",
+    "",
+    "→ / ↑  : forward 1 square",
+    "← / ↓  : back 1 square",
+    "Space  : forward 1 square",
+    "",
+    "⟳ Spinner squares: outcome is random.",
+    "Hospital pull: sometimes you are snapped back to square 1.",
+    `Recall: if pulled back, press R within ${Math.round(RECALL_WINDOW_MS/1000)}s to return.`,
+    "",
+    "? or H : toggle this help",
+    "Esc    : close help"
+  ];
+
+  if (canRecall(tNow)) {
+    lines.splice(9, 0, "");
+    lines.splice(10, 0, "↩ Recall available now: press R.");
+  }
+
+  return lines;
+}
+
+function drawHelpOverlay(t) {
+  if (!helpOpen) return;
+
+  const S = canvas.clientWidth;
+  const pad = Math.max(16, S * 0.05);
+  const boxW = S - pad * 2;
+  const boxH = S - pad * 2;
+
+  ctx.save();
+
+  // Dim background
+  ctx.globalAlpha = 0.62;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+
+  // Card
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(pad, pad, boxW, boxH);
+
+  // Border
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.65)";
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeRect(pad, pad, boxW, boxH);
+
+  // Text
+  const lines = formatHelpLines(t);
+  const left = pad + Math.max(16, S * 0.05);
+  let y = pad + Math.max(16, S * 0.05);
+
+  const titleSize = Math.max(16, Math.round(S * 0.045));
+  const bodySize  = Math.max(12, Math.round(S * 0.032));
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line === "") {
+      y += bodySize * 0.75;
+      continue;
+    }
+
+    if (i === 0) {
+      ctx.fillStyle = "rgba(0,0,0,0.92)";
+      ctx.font = `700 ${titleSize}px system-ui`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(line, left, y);
+      y += titleSize * 1.25;
+      continue;
+    }
+
+    ctx.fillStyle = "rgba(0,0,0,0.85)";
+    ctx.font = `${bodySize}px system-ui`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(line, left, y);
+    y += bodySize * 1.25;
+  }
+
+  ctx.restore();
+}
+
+/* ===============================
    MAIN DRAW
 =============================== */
 function draw(t) {
@@ -679,7 +778,7 @@ function draw(t) {
   drawTetherString(t);
   drawToken(t);
 
-  // Recall hint: shows only when R will actually work
+  // Recall hint near the knot (only when R will actually work)
   if (canRecall(t)) {
     const pin = squareCornerAnchor(1, "br");
     ctx.save();
@@ -691,6 +790,19 @@ function draw(t) {
     ctx.fillText("↩ R", pin.x - pin.r.w * 0.08, pin.y - pin.r.w * 0.02);
     ctx.restore();
   }
+
+  // Tiny persistent hint to discover help (kept subtle)
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.font = `${Math.max(10, Math.round(S * 0.022))}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "top";
+  ctx.fillText("? for help", S - Math.max(10, S * 0.02), Math.max(6, S * 0.012));
+  ctx.restore();
+
+  // Help overlay draws on top of everything
+  drawHelpOverlay(t);
 }
 
 /* ===============================
@@ -713,28 +825,44 @@ function attemptStep(delta, tNow) {
 }
 
 /* ===============================
-   INPUT (arrow keys + space + R recall)
+   INPUT (arrow keys + space + R recall + ? help)
 =============================== */
 document.addEventListener("keydown", (e) => {
   const tNow = performance.now();
 
   const code = e.code || "";
-  const key = (e.key || "").toLowerCase();
+  const rawKey = e.key || "";
+  const key = rawKey.toLowerCase();
 
-  const isSpace = (code === "Space") || (e.key === " ") || (e.key === "Spacebar");
+  const isHelp = (key === "?" || key === "h");
+  const isEsc = (code === "Escape" || key === "escape");
+  const isRecall = (key === "r");
+
+  const isSpace = (code === "Space") || (rawKey === " ") || (rawKey === "Spacebar");
   const isForward =
     (code === "ArrowRight") || (code === "ArrowUp") ||
-    (e.key === "ArrowRight") || (e.key === "ArrowUp");
+    (rawKey === "ArrowRight") || (rawKey === "ArrowUp");
 
   const isBack =
     (code === "ArrowLeft") || (code === "ArrowDown") ||
-    (e.key === "ArrowLeft") || (e.key === "ArrowDown");
+    (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  const isRecall = (key === "r");
-
-  if (!(isSpace || isForward || isBack || isRecall)) return;
+  if (!(isHelp || isEsc || isRecall || isSpace || isForward || isBack)) return;
 
   e.preventDefault();
+
+  // Help controls
+  if (isHelp) {
+    toggleHelp(!helpOpen);
+    return;
+  }
+  if (isEsc) {
+    toggleHelp(false);
+    return;
+  }
+
+  // When help is open, we ignore movement so people can read without the board shifting under them
+  if (helpOpen) return;
 
   if (isRecall) {
     attemptRecall(tNow);
@@ -744,6 +872,118 @@ document.addEventListener("keydown", (e) => {
   if (isBack) attemptStep(-1, tNow);
   else attemptStep(+1, tNow);
 });
+
+/* ===============================
+   HOSPITAL PULL + RECALL
+=============================== */
+function hospitalPullMaybe(tNow) {
+  if (spinActive) return false;
+  if (playerSquare === 1) return false;
+
+  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
+
+  lastSafeSquare = playerSquare;
+  recallSquare = lastSafeSquare;
+  recallExpiresAt = tNow + RECALL_WINDOW_MS;
+
+  spinActive = true;
+  spinSquare = playerSquare;
+  spinStartT = tNow;
+  pendingJumpTo = 1;
+  inputLocked = true;
+
+  stringJolt = Math.min(1.2, stringJolt + 0.55);
+  return true;
+}
+
+function canRecall(tNow) {
+  if (!recallSquare) return false;
+  if (tNow > recallExpiresAt) return false;
+  if (playerSquare !== 1) return false;
+  if (inputLocked) return false;
+  return true;
+}
+
+function attemptRecall(tNow) {
+  if (!canRecall(tNow)) return;
+
+  const target = recallSquare;
+
+  recallSquare = null;
+  recallExpiresAt = 0;
+
+  recordMove(target);
+  stringJolt = Math.min(1.0, stringJolt + 0.35);
+
+  startSpinIfNeeded(playerSquare);
+}
+
+/* ===============================
+   SPIN LOGIC (spinners)
+=============================== */
+function startSpinIfNeeded(fromSquare) {
+  if (!isSpinnerSquare(fromSquare)) return false;
+
+  const to = chooseSpinnerDestination(fromSquare);
+  if (!to || to === fromSquare) return false;
+
+  spinActive = true;
+  spinSquare = fromSquare;
+  spinStartT = performance.now();
+  pendingJumpTo = to;
+  inputLocked = true;
+  return true;
+}
+
+function drawSpinnerOverSquare(n, t) {
+  if (!spinActive || spinSquare !== n) return;
+
+  const { x, y, r } = squareCenter(n);
+  const radius = r.w * 0.22;
+
+  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+  const rot = (t - spinStartT) * 0.018;
+
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  ctx.lineWidth = Math.max(2, r.w * 0.05);
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineCap = "round";
+
+  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, arcSpan);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function updateSpin(t) {
+  if (!spinActive) return;
+
+  const elapsed = t - spinStartT;
+  if (elapsed < spinDurationMs) return;
+
+  spinActive = false;
+  const to = pendingJumpTo;
+  pendingJumpTo = null;
+
+  recordMove(to);
+  stringJolt = Math.min(1.2, stringJolt + 0.45);
+
+  // Chain spinners allowed
+  if (!startSpinIfNeeded(playerSquare)) {
+    inputLocked = false;
+  }
+}
 
 /* ===============================
    TICK / LOOP
@@ -761,6 +1001,16 @@ function tick(t) {
 /* ===============================
    START
 =============================== */
+function maybeOpenHelpOnFirstVisit() {
+  try {
+    const seen = localStorage.getItem(HELP_SEEN_KEY);
+    if (!seen) toggleHelp(true);
+  } catch {
+    // if storage blocked, just show it once per page load
+    toggleHelp(true);
+  }
+}
+
 async function start() {
   resizeCanvas();
 
@@ -772,6 +1022,8 @@ async function start() {
   } catch (err) {
     console.error("data failed to load:", err);
   }
+
+  maybeOpenHelpOnFirstVisit();
 
   if (rafId) cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(tick);
