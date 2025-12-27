@@ -18,7 +18,8 @@
     "peach":  "assets/tiles/peach.png",
     "terracotta":   "assets/tiles/terracotta.png",
     "lime":   "assets/tiles/lime.png",
-    "darkyellow":   "assets/tiles/darkyellow.png"
+    "darkyellow":   "assets/tiles/darkyellow.png",
+    "apple": "assets/icons/apple.png"
   },
 
   "tileSets": {
@@ -34,6 +35,7 @@
     "pink": [3, 9, 20, 24, 43, 66, 72, 84, 94, 99],
     "purple": [26, 57, 47, 69, 80, 86],
     "grey": [7, 36, 49],
-    "terracotta": [10, 35, 52, 67, 77, 93]
+    "terracotta": [10, 35, 52, 67, 77, 93],
+    "apple": [5]
   }
 }
