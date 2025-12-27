@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+  <title>??Are we there yet??</title>
 
   <style>
     body {
@@ -189,11 +189,26 @@ async function loadTiles() {
 }
 
 async function loadText() {
-  // data/text.json: keys can be "1".."100" (strings). We'll access with String(n).
   const res = await fetch("data/text.json?v=" + Date.now());
-  squareText = await res.json();
-  if (!squareText || typeof squareText !== "object") squareText = {};
+  const data = await res.json();
+
+  // Accept either:
+  // 1) flat: { "1": "text", "2": "text" }
+  // 2) nested: { "squares": { "1": { "text": "..." }, ... } }
+  if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(data.squares)) {
+      if (typeof v === "string") out[k] = v;
+      else if (v && typeof v === "object" && typeof v.text === "string") out[k] = v.text;
+    }
+    squareText = out;
+    return;
+  }
+
+  // Flat map
+  squareText = (data && typeof data === "object") ? data : {};
 }
+
 
 async function loadJumps() {
   // Optional file. If absent, game still runs with no spinners.
