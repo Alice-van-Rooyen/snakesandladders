@@ -22,6 +22,7 @@
       border: 5px solid #000;
       box-shadow: 0 8px 30px rgba(0,0,0,0.15);
       touch-action: manipulation;
+      display: block;
     }
   </style>
 </head>
@@ -49,9 +50,13 @@ const AHEAD = 1;
 const TRAIL_BEHIND = 6;
 let visited = [1];
 
+// Cheat / accessibility toggle (no UI button; key-chord only)
+let revealAll = false;
+function toggleRevealAll() { revealAll = !revealAll; }
+
 // --- DATA LAYERS (separated) ---
-let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // from data/tiles.json
-let squareText = {};                                               // from data/text.json (keys "1".."100" usually)
+let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
+let squareText = {};                                               // data/text.json
 
 // Tile mapping (built from tileConfig)
 let tileBySquare = {};
@@ -165,7 +170,7 @@ function squareCenter(n) {
 }
 
 /* ===============================
-   JSON LOADING (SEPARATED FILES)
+   JSON LOADING
 =============================== */
 async function loadTiles() {
   const res = await fetch("data/tiles.json?v=" + Date.now());
@@ -214,8 +219,6 @@ async function loadText() {
 }
 
 async function loadJumps() {
-  // Expects:
-  // { "spinners": { "17": [5, 32, 8], ... } }
   try {
     const res = await fetch("data/jumps.json?v=" + Date.now());
     if (!res.ok) throw new Error("jumps.json not ok");
@@ -298,7 +301,7 @@ function preloadImages(paths) {
 }
 
 /* ===============================
-   TILE + TEXT DRAWING
+   TILE + TEXT
 =============================== */
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
@@ -417,8 +420,15 @@ function recordMove(toSquare) {
 }
 
 function getVisibleSet() {
+  // If revealAll is true, the whole board is visible
+  if (revealAll) {
+    const all = new Set();
+    for (let n = 1; n <= 100; n++) all.add(n);
+    return all;
+  }
+
   const vis = new Set();
-  vis.add(1); // hospital square always legible
+  vis.add(1); // hospital always legible
   vis.add(playerSquare);
 
   for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
@@ -430,7 +440,7 @@ function getVisibleSet() {
 }
 
 /* ===============================
-   SPINNABLE SNAKES & LADDERS
+   SPINNERS
 =============================== */
 function isSpinnerSquare(n) { return spinnerSquares.has(n); }
 
@@ -452,7 +462,6 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 function drawSpinnerPin(n, rect, visible) {
-  // Pinned art on spinner squares (optional)
   if (!spinnerSquares.has(n)) return;
   if (!visible) return;
 
@@ -462,7 +471,6 @@ function drawSpinnerPin(n, rect, visible) {
   const img = getImage(path);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  // Placement inside square (tweak later to harmonize with doodles)
   const size = rect.w * 0.72;
   const x = rect.x + rect.w * 0.14;
   const y = rect.y + rect.h * 0.14;
@@ -474,7 +482,6 @@ function drawSpinnerPin(n, rect, visible) {
 }
 
 function drawSpinnerOutcome(t) {
-  // Rotated outcome art (optional, per from->to)
   if (!lastSpin) return;
 
   const age = t - lastSpin.t0;
@@ -498,14 +505,11 @@ function drawSpinnerOutcome(t) {
   ctx.save();
   ctx.globalAlpha = 0.85 * fade;
 
-  // subtle highlight over origin square
   ctx.fillStyle = "rgba(255,255,255,0.18)";
   ctx.fillRect(from.r.x, from.r.y, from.r.w, from.r.h);
 
   ctx.translate(from.x, from.y);
   ctx.rotate(angle);
-
-  // gentle settling wobble
   ctx.rotate(Math.sin((t - lastSpin.t0) * 0.02) * 0.10 * fade);
 
   ctx.drawImage(img, -size/2, -size/2, size, size);
@@ -568,7 +572,7 @@ function attemptRecall(tNow) {
 }
 
 /* ===============================
-   SPIN LOGIC (spinners + hospital return)
+   SPIN LOGIC
 =============================== */
 function startSpinIfNeeded(fromSquare) {
   if (!isSpinnerSquare(fromSquare)) return false;
@@ -585,7 +589,6 @@ function startSpinIfNeeded(fromSquare) {
 }
 
 function drawSpinnerOverSquare(n, t) {
-  // Spin indicator (the circular arc) while the spinner is "thinking"
   if (!spinActive || spinSquare !== n) return;
 
   const { x, y, r } = squareCenter(n);
@@ -631,7 +634,6 @@ function updateSpin(t) {
   recordMove(to);
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
-  // Remember spinner outcome art (if provided)
   const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
   const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
   if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
@@ -643,7 +645,7 @@ function updateSpin(t) {
 }
 
 /* ===============================
-   TOKEN (bottom-right) — adjustable
+   TOKEN (bottom-right)
 =============================== */
 function tokenAnchor(t) {
   const a = squareCornerAnchor(playerSquare, "br", TOKEN_PAD_FRAC);
@@ -682,7 +684,7 @@ function drawToken(t) {
 }
 
 /* ===============================
-   TETHER STRING (pin adjustable)
+   TETHER STRING
 =============================== */
 function drawTetherString(t) {
   const a = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
@@ -733,7 +735,7 @@ function drawTetherString(t) {
 }
 
 /* ===============================
-   HELP OVERLAY (JSON-driven)
+   HELP OVERLAY
 =============================== */
 function toggleHelp(open = !helpOpen) {
   helpOpen = !!open;
@@ -762,6 +764,8 @@ function getHelpLines(tNow) {
       "⟳ Spinner squares: outcome is random.",
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
+      "",
+      "Ctrl+Alt+Shift+V : reveal entire board (toggle)",
       "",
       "? / H : toggle this help",
       "Esc   : close help"
@@ -797,12 +801,10 @@ function drawHelpOverlay(t) {
   const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
 
-  // Typography tuning (smaller/denser)
   const titleSize = Math.max(18, Math.round(S * 0.038));
   const bodySize  = Math.max(13, Math.round(S * 0.026));
   const lineGap   = Math.round(bodySize * 0.6);
 
-  // Title
   ctx.globalAlpha = 1;
   ctx.fillStyle = "rgba(0,0,0,0.92)";
   ctx.font = `700 ${titleSize}px system-ui`;
@@ -811,7 +813,6 @@ function drawHelpOverlay(t) {
   ctx.fillText(title, left, y, maxTextWidth);
   y += titleSize * 1.4;
 
-  // Body
   ctx.fillStyle = "rgba(0,0,0,0.85)";
   ctx.font = `${bodySize}px system-ui`;
 
@@ -821,7 +822,6 @@ function drawHelpOverlay(t) {
     y += bodySize + lineGap;
   }
 
-  // Context line if recall is available
   if (canRecall(t)) {
     y += bodySize * 0.6;
     ctx.fillStyle = "rgba(0,0,0,0.9)";
@@ -850,61 +850,34 @@ function draw(t) {
     const rect = cellRect(row, col);
 
     drawTile(tileBySquare[n], rect);
-
-    // Optional spinner pin art
     drawSpinnerPin(n, rect, visible.has(n));
 
-    // Text (from data/text.json)
     const text = squareText[String(n)] || "";
-
-    if (text) {
-      if (n === 1 || visible.has(n)) {
-        drawText(text, rect);
-      } else {
-        const a = fogAlphaForSquare(n);
-        drawText(scrambleText(text, n), rect, a);
-
-        ctx.save();
-        ctx.globalAlpha = fogVeilForSquare(n);
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-        ctx.restore();
-      }
+    if (!text) {
+      drawSpinnerOverSquare(n, t);
+      continue;
     }
 
-    // Spinner “thinking” arc
+    if (n === 1 || visible.has(n)) {
+      drawText(text, rect);
+    } else {
+      // fog only when not revealing the full board
+      const a = fogAlphaForSquare(n);
+      drawText(scrambleText(text, n), rect, a);
+
+      ctx.save();
+      ctx.globalAlpha = fogVeilForSquare(n);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+    }
+
     drawSpinnerOverSquare(n, t);
   }
 
   drawTetherString(t);
   drawToken(t);
-
-  // Recall hint — position controlled by RECALL_LABEL_* knobs
-  if (canRecall(t)) {
-    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
-    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
-    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
-    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
-
-    ctx.save();
-    ctx.font = `800 ${fontPx}px system-ui`;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "bottom";
-
-    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText("↩ R", x, y);
-
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.fillText("↩ R", x, y);
-
-    ctx.restore();
-  }
-
-  // Outcome art (rotated toward destination) — optional
   drawSpinnerOutcome(t);
-
-  // Help overlay on top
   drawHelpOverlay(t);
 }
 
@@ -930,12 +903,33 @@ function attemptStep(delta, tNow) {
 /* ===============================
    INPUT
 =============================== */
+function isRevealChord(e, keyLower) {
+  // Punishment chord:
+  // Windows/Linux: Ctrl + Alt + Shift + V
+  // Mac:           ⌘ + ⌥ + ⇧ + V
+  const wantsV = (keyLower === "v");
+  if (!wantsV) return false;
+
+  const shift = !!e.shiftKey;
+  const alt = !!e.altKey;
+  const ctrlOrMeta = !!(e.ctrlKey || e.metaKey);
+
+  return ctrlOrMeta && alt && shift;
+}
+
 document.addEventListener("keydown", (e) => {
   const tNow = performance.now();
 
   const code = e.code || "";
   const rawKey = e.key || "";
   const key = rawKey.toLowerCase();
+
+  // Reveal chord works even when help is open (so they can “rage-reveal”)
+  if (isRevealChord(e, key)) {
+    e.preventDefault();
+    toggleRevealAll();
+    return;
+  }
 
   const isHelp = (key === "?" || key === "h");
   const isEsc = (code === "Escape" || key === "escape");
@@ -1013,7 +1007,6 @@ async function start() {
   rafId = requestAnimationFrame(tick);
 }
 
-// Ensure we start even if images fail
 board.onload = start;
 board.onerror = start;
 
