@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Simple Cheetah</title>
+  <title>Revised Cheetah</title>
 
   <style>
     body {
@@ -767,7 +767,7 @@ function getHelpLines(tNow) {
       "",
       "Ctrl+Alt+Shift+V : reveal entire board (toggle)",
       "",
-      "? / H : toggle this help",
+      "? : toggle this help",
       "Esc   : close help"
     ]
   };
@@ -910,7 +910,6 @@ let cheatLastT = 0;
 const CHEAT_TIMEOUT_MS = 900; // max gap between letters
 
 function pushCheatChar(ch, tNow) {
-  // Reset buffer if they paused too long
   if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
   cheatLastT = tNow;
 
@@ -931,10 +930,8 @@ document.addEventListener("keydown", (e) => {
   const rawKey = e.key || "";
   const key = String(rawKey || "").toLowerCase();
 
-  // Let them rage-toggle even while help is open:
-  // typing C-H-E-A-T (in order) toggles revealAll
+  // CHEAT typing takes precedence over everything else
   if (key.length === 1 && "cheat".includes(key)) {
-    // Only treat as cheat input when no modifier keys are held
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
       const toggled = pushCheatChar(key, tNow);
       if (toggled) {
@@ -944,8 +941,10 @@ document.addEventListener("keydown", (e) => {
     }
   }
 
-  const isHelp = (key === "?" || key === "h");
+  // Help: only "?"
+  const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
+
   const isRecall = (key === "r");
   const isHome = (code === "Home" || key === "home" || key === "1");
 
@@ -965,7 +964,6 @@ document.addEventListener("keydown", (e) => {
   if (isHelp) { toggleHelp(!helpOpen); return; }
   if (isEsc)  { toggleHelp(false); return; }
 
-  // When help is open, ignore movement etc.
   if (helpOpen) return;
 
   if (isHome) { goHome(tNow); return; }
@@ -975,11 +973,11 @@ document.addEventListener("keydown", (e) => {
   else attemptStep(+1, tNow);
 });
 
-// Safety: if the window loses focus, clear cheat buffer
 window.addEventListener("blur", () => {
   cheatBuffer = "";
   cheatLastT = 0;
 });
+
 
 /* ===============================
    TICK / LOOP
