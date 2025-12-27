@@ -38,7 +38,7 @@
   "33":  { "text": "Walk to Greggs for fresh air, drop your steak bake and knock over your coffee. Fresh air is for losers.", "icon": null },
   "34":  { "text": "You realise the hospital energy budget was a figment of your imagination.", "icon": null },
   "35":  { "text": "You buy more groceries you are too tired to prepare and will throw out.", "icon": null },
-  "36":  { "text": "'We forgot to mention' - too late, you had to find out through lived experience.", "icon": null },
+  "36":  { "text": "'We forgot to mention'", "icon": null },
   "37":  { "text": "The Deliveroo man doesn't know your name, but he knows your secret code.", "icon": null },
   "38":  { "text": "Someone makes a decision for you, not with you. Autonomy Override Alert activated.", "icon": null },
   "39":  { "text": "You drop something on the floor, decide you never really needed it. It lives there now.", "icon": null },
@@ -74,7 +74,7 @@
   "66":  { "text": "You are dizzy standing up. You sit down. You are dizzy sitting down. You go to bed.", "icon": null },
   "67":  { "text": "More groceries? You indefatigable optimist! You put another bin liner in, because ... well ...", "icon": null },
   "68":  { "text": "Spend 5 hours on the sofa listening to your tinnitus with a cup of tea.", "icon": null },
-  "69":  { "text": "'You deserve a nap' - you realise rest is medicine not morality then take that nap. Go you!", "icon": null },
+  "69":  { "text": "'You deserve a nap'", "icon": null },
   "70":  { "text": "You tell your 100th person 'I'm not very good at stairs at the moment'.", "icon": null },
 
   "71":  { "text": "Too tired to shower. Too filthy not to.", "icon": null },
@@ -103,11 +103,11 @@
   "92":  { "text": "You can sign your own name again, but the electrical storm in your hand is ongoing.", "icon": null },
   "93":  { "text": "Your new love of steak bakes is a culinary violation of everything you stand for - you eat another one anyway.", "icon": null },
   "94":  { "text": "Your carpet is an affront to decency, but the vacuum cleaner weighs more than a whale.", "icon": null },
-  "95":  { "text": "'That's perfectly normal' - now you tell me!", "icon": null },
+  "95":  { "text": "'That's perfectly normal'", "icon": null },
   "96":  { "text": "You have a day with no pain. You think you are cured - you are not.", "icon": null },
   "97":  { "text": "You play the 'I nearly died' card with your brother during a vicious round of Uno - he plays the +5 card.", "icon": null },
   "98":  { "text": "An acquaintance wants to visit. It's easier to unfriend them than tidy the house.", "icon": null },
   "99":  { "text": "You compare weight loss wattles with a colleague on Ozempic. You're winning.", "icon": null },
-  "100": { "text": "'Early convalescence' is over. Advance to new levels of existential bullshit. Congratulations?", "icon": null }
+  "100": { "text": "'Early convalescence' is over. Advance to new levels of existential bullshit.", "icon": null }
   }
 }
