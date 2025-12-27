@@ -129,18 +129,39 @@ function getImage(path) {
 }
 
 /* ===============================
-   RESIZE
+   RESIZE (robust: works with Ctrl+ / Ctrl- zoom)
 =============================== */
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const size = canvas.clientWidth;
 
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
+  // Use the element’s current rendered size in CSS pixels
+  const rect = canvas.getBoundingClientRect();
+  const size = Math.min(rect.width, rect.height);
 
+  // Protect against 0-size during layout transitions
+  const safeSize = Math.max(1, size);
+
+  canvas.width  = Math.round(safeSize * dpr);
+  canvas.height = Math.round(safeSize * dpr);
+
+  // Draw using CSS pixels (0..safeSize)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
 }
+
+// Observe size changes of the canvas itself (catches zoom + layout changes)
+const ro = new ResizeObserver(() => {
+  resizeCanvas();
+});
+ro.observe(canvas);
+
+// Also listen to visualViewport changes (helps on some browsers/OS zoom behaviours)
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", () => {
+    resizeCanvas();
+  });
+}
+
 
 /* ===============================
    GRID MATH
@@ -482,8 +503,12 @@ function drawRichText(text, r, alpha = 1) {
   const padding = 6;
   const maxWidth = r.w - padding * 2;
 
-  let fontSize = 12;
-  while (fontSize >= 6) {
+  const startFont = 12;
+  const minFont = 6;
+
+  let chosen = null;
+
+  for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
     const lines = layoutRichText(text, maxWidth, fontSize);
 
     const lineH = Math.round(fontSize * 1.15);
@@ -491,39 +516,54 @@ function drawRichText(text, r, alpha = 1) {
     const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
 
     if (blockH <= r.h - padding * 2) {
-      let y = r.y + (r.h - blockH) / 2;
-      const cx = r.x + r.w / 2;
+      chosen = { fontSize, lines, lineH, gapH, blockH };
+      break;
+    }
+  }
 
-      for (const item of lines) {
-        if (item.type === "gap") { y += gapH; continue; }
+  // Fallback: if it never fits, draw at minimum size anyway (clip rather than disappear)
+  if (!chosen) {
+    const fontSize = minFont;
+    const lines = layoutRichText(text, maxWidth, fontSize);
+    const lineH = Math.round(fontSize * 1.15);
+    const gapH  = Math.round(lineH * 0.45);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+    chosen = { fontSize, lines, lineH, gapH, blockH };
+  }
 
-        // Measure full line width so we can center it
-        let lineW = 0;
-        for (const run of item.runs) {
-          lineW += measureRunText(fontSize, run.bold, run.text);
-        }
+  const { fontSize, lines, lineH, gapH, blockH } = chosen;
 
-        let x = cx - lineW / 2;
+  // Clip to the cell, so overflow doesn’t scribble onto neighbours
+  ctx.beginPath();
+  ctx.rect(r.x + padding, r.y + padding, r.w - 2 * padding, r.h - 2 * padding);
+  ctx.clip();
 
-        // Draw runs
-        for (const run of item.runs) {
-          setFont(fontSize, run.bold);
-          ctx.fillText(run.text, x, y);
-          x += ctx.measureText(run.text).width;
-        }
+  let y = r.y + (r.h - blockH) / 2;
+  const cx = r.x + r.w / 2;
 
-        y += lineH;
-      }
+  for (const item of lines) {
+    if (item.type === "gap") { y += gapH; continue; }
 
-      ctx.restore();
-      return;
+    // Measure full line width so we can center it
+    let lineW = 0;
+    for (const run of item.runs) {
+      lineW += measureRunText(fontSize, run.bold, run.text);
     }
 
-    fontSize--;
+    let x = cx - lineW / 2;
+
+    for (const run of item.runs) {
+      setFont(fontSize, run.bold);
+      ctx.fillText(run.text, x, y);
+      x += ctx.measureText(run.text).width;
+    }
+
+    y += lineH;
   }
 
   ctx.restore();
 }
+
 
 /* ===============================
    VISIBILITY (breadcrumb trail)
