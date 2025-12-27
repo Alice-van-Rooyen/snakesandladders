@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>state of the spin</title>
+  <title>an apple a day</title>
 
   <style>
     body {
@@ -59,7 +59,7 @@ const CHEAT_FLASH_MS = 260;
 
 // --- DATA LAYERS (separated) ---
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
-let squareInfo = {};                                               // { "4": { text, icon }, ... }
+let squareText = {};                                               // data/text.json
 let tileBySquare = {};
 
 // Spinners (mechanics)
@@ -214,44 +214,23 @@ async function loadTiles() {
 }
 
 async function loadText() {
-  // Accept:
-  // A) flat strings: { "1":"...", "2":"..." }
-  // B) objects:      { "4": { "text":"...", "icon":"assets/..." }, ... }
-  // C) legacy:       { "squares": { "1": { "text":"..." }, ... } }
-
+  // Accept either:
+  // 1) flat map: { "1":"...", "2":"..." }
+  // 2) nested legacy: { "squares": { "1": { "text":"..." }, ... } }
   const res = await fetch("data/text.json?v=" + Date.now());
   const data = await res.json();
 
-  const out = {};
-
-  // Legacy wrapper
-  const source = (data && typeof data === "object" && data.squares && typeof data.squares === "object")
-    ? data.squares
-    : data;
-
-  if (!source || typeof source !== "object") {
-    squareInfo = {};
+  if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(data.squares)) {
+      if (typeof v === "string") out[k] = v;
+      else if (v && typeof v === "object" && typeof v.text === "string") out[k] = v.text;
+    }
+    squareText = out;
     return;
   }
 
-  for (const [k, v] of Object.entries(source)) {
-    if (typeof v === "string") {
-      out[k] = { text: v, icon: "" };
-    } else if (v && typeof v === "object") {
-      const text = (typeof v.text === "string") ? v.text : "";
-      const icon = (typeof v.icon === "string") ? v.icon : "";
-      out[k] = { text, icon };
-    }
-  }
-
-  squareInfo = out;
-
-  // Optional: preload icons so first draw doesn't miss them
-  const iconPaths = Object.values(squareInfo)
-    .map(o => o && o.icon)
-    .filter(p => typeof p === "string" && p.trim());
-
-  await preloadImages([...new Set(iconPaths)]);
+  squareText = (data && typeof data === "object") ? data : {};
 }
 
 async function loadJumps() {
@@ -360,22 +339,6 @@ function drawTile(tilePath, r) {
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-function drawIcon(iconPath, r, alpha = 1) {
-  if (!iconPath) return;
-  const img = getImage(iconPath);
-  if (!img || !img.complete || img.naturalWidth === 0) return;
-
-  // Keep it modest so your doodles still have space
-  const size = r.w * 0.42;
-  const x = r.x + r.w * 0.08;
-  const y = r.y + r.h * 0.08;
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.drawImage(img, x, y, size, size);
-  ctx.restore();
-}
-  
 /* ===============================
    TEXT: fog + markdown-lite bold (**bold**)
 =============================== */
@@ -1347,8 +1310,7 @@ function drawHelpOverlay(t) {
 =============================== */
 function getSquareDisplayText(n) {
   if (activeSubSquare === n && activeSubText) return activeSubText;
-  const entry = squareInfo[String(n)];
-  return (entry && entry.text) ? entry.text : "";
+  return squareText[String(n)] || "";
 }
 
 function draw(t) {
@@ -1368,27 +1330,21 @@ function draw(t) {
     drawTile(tileBySquare[n], rect);
     drawSpinnerPin(n, rect, visible.has(n));
 
-    const entry = squareInfo[String(n)] || { text: "", icon: "" };
-const text = getSquareDisplayText(n);
+    const text = getSquareDisplayText(n);
+    if (text) {
+      if (n === 1 || visible.has(n)) {
+        drawRichText(text, rect, 1);
+      } else {
+        const a = fogAlphaForSquare(n);
+        drawRichText(scrambleText(text, n), rect, a);
 
-if (n === 1 || visible.has(n)) {
-  // Legible: draw icon + text
-  if (entry.icon) drawIcon(entry.icon, rect, 1);
-  if (text) drawRichText(text, rect, 1);
-} else {
-  // Fogged: draw icon faintly (optional) + scrambled text
-  const a = fogAlphaForSquare(n);
-
-  if (entry.icon) drawIcon(entry.icon, rect, 0.25); // subtle hint only
-  if (text) drawRichText(scrambleText(text, n), rect, a);
-
-  ctx.save();
-  ctx.globalAlpha = fogVeilForSquare(n);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.restore();
-}
-
+        ctx.save();
+        ctx.globalAlpha = fogVeilForSquare(n);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+      }
+    }
 
     drawSubstitutionCue(t, rect, n);
     drawSpinnerOverSquare(n, t);
