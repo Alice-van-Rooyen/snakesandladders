@@ -1,3 +1,4 @@
+{
   "squares": {
   "1":   { "text": "You are discharged. Good luck!", "icon": null },
   "2":   { "text": "Being upright smacks of effort, you opt to be horizontal - a solid first move.", "icon": null },
@@ -109,3 +110,4 @@
   "99":  { "text": "You compare weight loss wattles with a colleague on Ozempic. You're winning.", "icon": null },
   "100": { "text": "'Early convalescence' is over. Advance to new levels of existential bullshit. Congratulations?", "icon": null }
   }
+}
