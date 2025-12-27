@@ -1,8 +1,8 @@
 {
   "_meta": { "version": 2 },
-
-  "defaultTile": "blue",
-
+  
+  "defaultTile": "blue", // default blue tiles: 5, 12, 25, 33, 40, 51, 59, 78, 90, 100
+  
   "tiles": {
     "blue":   "assets/tiles/blue.png",
     "pink":   "assets/tiles/pink.png",
@@ -34,6 +34,5 @@
     "purple": [26, 47, 69, 80, 86],
     "grey": [36, 49],
     "terracotta": [7, 8, 10, 17, 19, 31, 34, 35, 38, 52, 57, 58, 64, 65, 66, 67, 70, 71, 77, 82, 85, 92, 93]
-    // default blue tiles (5, 12, 25, 33, 40, 51, 59, 78, 90, 100)
   }
 }
