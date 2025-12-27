@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+  <title>Convalescent Snakes & Ladders</title>
 
   <style>
     body {
@@ -671,10 +671,13 @@ function drawHelpOverlay(t) {
 
   const { title, lines } = getHelpLines(t);
   const left = pad + Math.max(16, S * 0.05);
+  const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
 
-  const titleSize = Math.max(16, Math.round(S * 0.045));
-  const bodySize  = Math.max(12, Math.round(S * 0.032));
+  // Typography tuning
+  const titleSize = Math.max(18, Math.round(S * 0.038));
+  const bodySize  = Math.max(13, Math.round(S * 0.026));
+  const lineGap   = Math.round(bodySize * 0.6);
 
   // Title
   ctx.fillStyle = "rgba(0,0,0,0.92)";
@@ -682,16 +685,16 @@ function drawHelpOverlay(t) {
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.fillText(title, left, y);
-  y += titleSize * 1.25;
+  y += titleSize * 1.4;
 
   // Body
   ctx.fillStyle = "rgba(0,0,0,0.85)";
   ctx.font = `${bodySize}px system-ui`;
 
   for (const line of lines) {
-    if (line === "") { y += bodySize * 0.75; continue; }
-    ctx.fillText(line, left, y);
-    y += bodySize * 1.25;
+    if (line === "") { y += bodySize * 0.9; continue; }
+    ctx.fillText(line, left, y, maxTextWidth);
+    y += bodySize + lineGap;
   }
 
   // Context line if recall is available
