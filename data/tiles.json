@@ -1,0 +1,58 @@
+{
+  "_meta": { "version": 2 },
+
+  "spinners": {
+    "17": {
+      "type": "move",
+      "choices": [
+        { "label": "Slip", "move": -3 },
+        { "label": "Stall", "move": -1 },
+        { "label": "Lucky", "move": 2 },
+        { "label": "Boost", "move": 5 }
+      ]
+    },
+    "42": {
+      "type": "jump",
+      "choices": [
+        { "label": "Back to 30", "to": 30 },
+        { "label": "Forward to 55", "to": 55 },
+        { "label": "Side quest to 47", "to": 47 }
+      ]
+    }
+  },
+
+  "defaultTile": "blue",
+
+  "tiles": {
+    "blue":   "assets/tiles/blue.png",
+    "pink":   "assets/tiles/pink.png",
+    "yellow": "assets/tiles/yellow.png",
+    "green":  "assets/tiles/green.png",
+    "orange": "assets/tiles/orange.png",
+    "purple": "assets/tiles/purple.png",
+    "red":    "assets/tiles/red.png",
+    "aqua":   "assets/tiles/aqua.png",
+    "grey":   "assets/tiles/grey.png",
+    "gold":   "assets/tiles/gold.png",
+    "peach":  "assets/tiles/peach.png",
+    "terracotta":   "assets/tiles/terracotta.png",
+    "lime":   "assets/tiles/lime.png",
+    "darkyellow":   "assets/tiles/darkyellow.png"
+  },
+
+  "tileSets": {
+    "pink": [3, 12, 24, 37, 48, 69, 88, 100],
+    "yellow": [2, 15, 26, 38, 51, 64, 82, 97],
+    "green": [5, 14, 28, 41, 56, 67, 85, 96],
+    "orange": [7, 18, 32, 43, 59, 71, 87, 99],
+    "purple": [9, 19, 34, 47, 55, 76, 90],
+    "red": [4, 17, 29, 42, 54, 68, 81],
+    "aqua": [6, 13, 25, 39, 52, 65, 84],
+    "grey": [11, 23, 36, 50, 63, 75],
+    "gold": [8, 22, 35, 49, 62, 78],
+    "peach": [10, 20, 33, 46, 58, 73],
+    "terracotta": [16, 27, 44, 61, 86],
+    "lime": [30, 40, 57, 70, 93],
+    "darkyellow": [21, 31, 45, 60, 72, 92]
+  }
+}
