@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+  <title>Alice goes pop pop</title>
 
   <style>
     body {
@@ -69,6 +69,14 @@ let spinnerSquares = new Set();
 // Spinner art (optional)
 let spinnerPins = {};         // { from: "path.png" }
 let spinnerOutcomes = {};     // { from: { to: "path.png" } }
+
+// Popups (new)
+let popupMap = {};            // { "36": { popup: "..." }, ... }
+const shownPopups = new Set(); // squares that have already shown their popup
+let popupArmed = null;        // { square, showAt }
+let popupActive = false;      // currently visible overlay
+let popupText = "";           // current popup content
+const POPUP_DELAY_MS = 520;   // tiny delay so you can read the square first
 
 // Last resolved spinner outcome (for rotated outcome art)
 let lastSpin = null;          // { from, to, t0, imgPath }
@@ -290,6 +298,19 @@ async function loadSpinnerArt() {
   }
 }
 
+async function loadPopups() {
+  // Optional: data/popups.json
+  // Format: { "36": { "popup": "..." }, ... }
+  try {
+    const res = await fetch("data/popups.json?v=" + Date.now());
+    if (!res.ok) throw new Error("popups.json not ok");
+    const data = await res.json();
+    popupMap = (data && typeof data === "object") ? data : {};
+  } catch {
+    popupMap = {};
+  }
+}
+
 function preloadImages(paths) {
   const promises = paths.map(p => new Promise(resolve => {
     const img = getImage(p);
@@ -437,6 +458,137 @@ function getVisibleSet() {
     vis.add(visited[i]);
   }
   return vis;
+}
+
+/* ===============================
+   POPUPS (arm on landing, show after delay)
+=============================== */
+function getPopupForSquare(n) {
+  const entry = popupMap[String(n)];
+  if (!entry || typeof entry !== "object") return null;
+  const txt = entry.popup;
+  if (typeof txt !== "string" || !txt.trim()) return null;
+  return txt;
+}
+
+function maybeArmPopupOnLanding(n, tNow) {
+  if (popupActive) return;
+  if (popupArmed && popupArmed.square === n) return;
+  if (shownPopups.has(String(n))) return;
+
+  const txt = getPopupForSquare(n);
+  if (!txt) return;
+
+  popupArmed = { square: n, showAt: tNow + POPUP_DELAY_MS };
+}
+
+function updatePopup(t) {
+  if (popupActive) return;
+  if (!popupArmed) return;
+
+  // If player moved away before it fired, cancel it.
+  if (playerSquare !== popupArmed.square) {
+    popupArmed = null;
+    return;
+  }
+
+  if (t >= popupArmed.showAt) {
+    popupText = getPopupForSquare(popupArmed.square) || "";
+    popupActive = !!popupText;
+    if (popupActive) {
+      shownPopups.add(String(popupArmed.square));
+      inputLocked = true; // lock movement until dismissed (first keypress)
+    }
+    popupArmed = null;
+  }
+}
+
+function dismissPopup() {
+  if (!popupActive) return;
+  popupActive = false;
+  popupText = "";
+  inputLocked = false; // allow next keypress to do something
+}
+
+function drawPopupOverlay(t) {
+  if (!popupActive) return;
+
+  const S = canvas.clientWidth;
+  const pad = Math.max(16, S * 0.07);
+  const boxW = S - pad * 2;
+  const boxH = Math.max(S * 0.22, 140);
+
+  const x = pad;
+  const y = (S - boxH) / 2;
+
+  ctx.save();
+
+  // Dim
+  ctx.globalAlpha = 0.58;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+
+  // Panel
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x, y, boxW, boxH);
+
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeRect(x, y, boxW, boxH);
+
+  // Text
+  const inner = Math.max(14, S * 0.03);
+  const tx = x + inner;
+  const ty = y + inner;
+  const maxW = boxW - inner * 2;
+
+  const bodySize = Math.max(14, Math.round(S * 0.028));
+  const lineGap = Math.round(bodySize * 0.55);
+
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(0,0,0,0.88)";
+  ctx.font = `${bodySize}px system-ui`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  // simple wrap with newline support
+  const paragraphs = String(popupText).split("\n");
+  let cy = ty;
+
+  for (const para of paragraphs) {
+    const words = para.split(" ");
+    let line = "";
+
+    for (const w of words) {
+      const test = line ? `${line} ${w}` : w;
+      if (ctx.measureText(test).width > maxW) {
+        if (line) {
+          ctx.fillText(line, tx, cy, maxW);
+          cy += bodySize + lineGap;
+        }
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) {
+      ctx.fillText(line, tx, cy, maxW);
+      cy += bodySize + lineGap;
+    }
+    cy += bodySize * 0.45; // paragraph gap
+  }
+
+  // Hint (tiny)
+  const hintSize = Math.max(11, Math.round(S * 0.020));
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.font = `600 ${hintSize}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("Press a movement key to dismiss.", x + boxW - inner, y + boxH - inner);
+
+  ctx.restore();
 }
 
 /* ===============================
@@ -642,6 +794,9 @@ function updateSpin(t) {
   if (!startSpinIfNeeded(playerSquare)) {
     inputLocked = false;
   }
+
+  // Arm popup after the move settles on this square
+  maybeArmPopupOnLanding(playerSquare, t);
 }
 
 /* ===============================
@@ -765,10 +920,11 @@ function getHelpLines(tNow) {
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
+      "Pop-up squares: first keypress dismisses, second moves (annoying on purpose).",
       "Type CHEAT : reveal entire board (toggle)",
       "Esc : close help, or return to jumbled board",
       "",
-      "? : toggle this help",
+      "? : toggle this help"
     ]
   };
 }
@@ -908,6 +1064,10 @@ function draw(t) {
     ctx.restore();
   }
 
+  // Pop-up overlay on top of board elements (but under help)
+  drawPopupOverlay(t);
+
+  // Help overlay on very top
   drawHelpOverlay(t);
 }
 
@@ -920,13 +1080,16 @@ function attemptStep(delta, tNow) {
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
 
-  if (playerSquare !== 1) lastSafeSquare = playerSquare;
-
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
+  // Arm popup for landing square (if any)
+  maybeArmPopupOnLanding(playerSquare, tNow);
+
+  // Spinners resolve after landing; popups for spinner destinations are armed in updateSpin()
   if (startSpinIfNeeded(playerSquare)) return;
 
+  // Hospital pull
   hospitalPullMaybe(tNow);
 }
 
@@ -970,10 +1133,9 @@ document.addEventListener("keydown", (e) => {
     }
   }
 
-  // Help is only "?"
+  // Identify key intents
   const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
-
   const isRecall = (key === "r");
   const isHome = (code === "Home" || key === "home" || key === "1");
 
@@ -986,8 +1148,21 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  if (!(isHelp || isEsc || isRecall || isHome || isSpace || isForward || isBack)) return;
+  const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
 
+  // If popup is active: first keypress dismisses only (no movement, no help toggle, no recall/home)
+  if (popupActive) {
+    // Esc should still work to exit reveal/help logic? Your spec says movement/space/arrows dismiss.
+    // We'll allow *any* meaningful key (movement, ? or Esc) to dismiss — but do nothing else.
+    if (isMovementKey || isHelp || isEsc) {
+      e.preventDefault();
+      dismissPopup();
+    }
+    return;
+  }
+
+  // Normal handling
+  if (!(isHelp || isEsc || isRecall || isHome || isSpace || isForward || isBack)) return;
   e.preventDefault();
 
   if (isHelp) { toggleHelp(!helpOpen); return; }
@@ -1020,6 +1195,7 @@ function tick(t) {
   if (stringJolt < 0.001) stringJolt = 0;
 
   updateSpin(t);
+  updatePopup(t); // show popup after delay if armed
   draw(t);
 
   rafId = requestAnimationFrame(tick);
@@ -1046,11 +1222,15 @@ async function start() {
       loadText(),
       loadJumps(),
       loadHelpCopy(),
-      loadSpinnerArt()
+      loadSpinnerArt(),
+      loadPopups()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
   }
+
+  // On initial load, arm popup if starting square has one (probably not, but consistent)
+  maybeArmPopupOnLanding(playerSquare, performance.now());
 
   maybeOpenHelpOnFirstVisit();
 
