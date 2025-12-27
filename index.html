@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Alice goes pop pop</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -50,7 +50,7 @@ const AHEAD = 1;
 const TRAIL_BEHIND = 6;
 let visited = [1];
 
-// Cheat / accessibility toggle (typing "CHEAT")
+// Cheat reveal (typing "CHEAT")
 let revealAll = false;
 
 // Flash feedback when cheat toggles
@@ -70,13 +70,13 @@ let spinnerSquares = new Set();
 let spinnerPins = {};         // { from: "path.png" }
 let spinnerOutcomes = {};     // { from: { to: "path.png" } }
 
-// Popups (new)
-let popupMap = {};            // { "36": { popup: "..." }, ... }
-const shownPopups = new Set(); // squares that have already shown their popup
-let popupArmed = null;        // { square, showAt }
-let popupActive = false;      // currently visible overlay
-let popupText = "";           // current popup content
-const POPUP_DELAY_MS = 520;   // tiny delay so you can read the square first
+// Square substitution (replaces square text after landing delay)
+let popupMap = {};               // { "36": { popup: "..." }, ... }
+const shownSubstitutions = new Set(); // "36", "69" ... (once per load)
+let substitutionArmed = null;     // { square, showAt }
+let activeSubSquare = null;       // number or null
+let activeSubText = "";           // string
+const SUB_DELAY_MS = 520;         // tiny delay to let the original square be read
 
 // Last resolved spinner outcome (for rotated outcome art)
 let lastSpin = null;          // { from, to, t0, imgPath }
@@ -95,7 +95,6 @@ let pendingJumpTo = null;
 
 // Hospital pull + recall
 const HOSPITAL_PULL_CHANCE = 0.03;
-let lastSafeSquare = 1;
 let recallSquare = null;
 let recallExpiresAt = 0;
 const RECALL_WINDOW_MS = 6000;
@@ -323,7 +322,7 @@ function preloadImages(paths) {
 }
 
 /* ===============================
-   TILE + TEXT
+   TILE
 =============================== */
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
@@ -332,6 +331,10 @@ function drawTile(tilePath, r) {
   const pad = r.w * 0.06;
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
+
+/* ===============================
+   TEXT: fog + markdown-lite bold (**bold**)
+=============================== */
 
 // Deterministic scramble per square
 function scrambleText(text, seed) {
@@ -365,13 +368,115 @@ function fogVeilForSquare(n) {
   return near + (far - near) * t;
 }
 
-function drawText(text, r, alpha = 1) {
+function parseBoldRuns(str) {
+  // Markdown-lite: **bold**
+  // Returns [{text, bold}, ...]
+  const runs = [];
+  let i = 0;
+  let bold = false;
+
+  while (i < str.length) {
+    const j = str.indexOf("**", i);
+    if (j === -1) {
+      const tail = str.slice(i);
+      if (tail) runs.push({ text: tail, bold });
+      break;
+    }
+    const chunk = str.slice(i, j);
+    if (chunk) runs.push({ text: chunk, bold });
+    bold = !bold;
+    i = j + 2;
+  }
+
+  // If odd number of **, we just treat trailing state as-is (good enough + predictable)
+  return runs;
+}
+
+function setFont(fontSizePx, bold) {
+  const weight = bold ? 800 : 400;
+  ctx.font = `${weight} ${fontSizePx}px system-ui`;
+}
+
+function measureRunText(fontSizePx, bold, text) {
+  setFont(fontSizePx, bold);
+  return ctx.measureText(text).width;
+}
+
+function layoutRichText(text, maxWidth, fontSizePx) {
+  // Supports manual line breaks and **bold** toggles.
+  // Produces lines, each line is array of {text, bold}.
+  const paragraphs = String(text).split("\n");
+  const lines = [];
+
+  for (let p = 0; p < paragraphs.length; p++) {
+    const para = paragraphs[p];
+
+    // Special case: empty paragraph -> gap
+    if (para.trim() === "") {
+      lines.push({ type: "gap" });
+      continue;
+    }
+
+    const runs = parseBoldRuns(para);
+
+    // Tokenise runs into words with bold flag, preserving spaces by re-adding a single space between words
+    const tokens = [];
+    for (const run of runs) {
+      const parts = run.text.split(" ");
+      for (let k = 0; k < parts.length; k++) {
+        const w = parts[k];
+        if (w === "" && parts.length > 1) continue;
+        tokens.push({ text: w, bold: run.bold, isSpace: false });
+        if (k < parts.length - 1) tokens.push({ text: " ", bold: run.bold, isSpace: true });
+      }
+    }
+
+    // Wrap into lines
+    let current = [];
+    let currentW = 0;
+
+    for (const tok of tokens) {
+      const w = measureRunText(fontSizePx, tok.bold, tok.text);
+
+      // Don't start a line with a space
+      if (current.length === 0 && tok.isSpace) continue;
+
+      if (currentW + w > maxWidth && current.length > 0) {
+        // trim trailing spaces
+        while (current.length && current[current.length - 1].isSpace) current.pop();
+        lines.push({ type: "line", runs: current });
+
+        current = [];
+        currentW = 0;
+
+        if (tok.isSpace) continue; // skip leading space on new line
+      }
+
+      current.push(tok);
+      currentW += w;
+    }
+
+    // flush
+    while (current.length && current[current.length - 1].isSpace) current.pop();
+    if (current.length) lines.push({ type: "line", runs: current });
+
+    // paragraph gap between paragraphs (but not after last)
+    if (p < paragraphs.length - 1) lines.push({ type: "gap" });
+  }
+
+  // Remove trailing gap
+  while (lines.length && lines[lines.length - 1].type === "gap") lines.pop();
+
+  return lines;
+}
+
+function drawRichText(text, r, alpha = 1) {
   if (!text) return;
 
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = "#000";
-  ctx.textAlign = "center";
+  ctx.textAlign = "left";
   ctx.textBaseline = "top";
 
   const padding = 6;
@@ -379,40 +484,34 @@ function drawText(text, r, alpha = 1) {
 
   let fontSize = 12;
   while (fontSize >= 6) {
-    ctx.font = `${fontSize}px system-ui`;
+    const lines = layoutRichText(text, maxWidth, fontSize);
 
-    const paragraphs = String(text).split("\n");
-    const lines = [];
-
-    for (const para of paragraphs) {
-      const words = para.split(" ");
-      let line = "";
-
-      for (const w of words) {
-        const test = line ? `${line} ${w}` : w;
-        if (ctx.measureText(test).width > maxWidth) {
-          if (line) lines.push(line);
-          line = w;
-        } else {
-          line = test;
-        }
-      }
-      if (line) lines.push(line);
-      lines.push({ type: "gap" });
-    }
-    if (lines.length && lines[lines.length - 1]?.type === "gap") lines.pop();
-
-    const lineH = Math.round(fontSize * 1.1);
-    const gapH  = Math.round(lineH * 0.35);
-    const blockH = lines.reduce((h, item) => h + (item?.type === "gap" ? gapH : lineH), 0);
+    const lineH = Math.round(fontSize * 1.15);
+    const gapH  = Math.round(lineH * 0.45);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
 
     if (blockH <= r.h - padding * 2) {
       let y = r.y + (r.h - blockH) / 2;
       const cx = r.x + r.w / 2;
 
       for (const item of lines) {
-        if (item?.type === "gap") { y += gapH; continue; }
-        ctx.fillText(item, cx, y);
+        if (item.type === "gap") { y += gapH; continue; }
+
+        // Measure full line width so we can center it
+        let lineW = 0;
+        for (const run of item.runs) {
+          lineW += measureRunText(fontSize, run.bold, run.text);
+        }
+
+        let x = cx - lineW / 2;
+
+        // Draw runs
+        for (const run of item.runs) {
+          setFont(fontSize, run.bold);
+          ctx.fillText(run.text, x, y);
+          x += ctx.measureText(run.text).width;
+        }
+
         y += lineH;
       }
 
@@ -461,9 +560,9 @@ function getVisibleSet() {
 }
 
 /* ===============================
-   POPUPS (arm on landing, show after delay)
+   SQUARE SUBSTITUTION (replaces square text after landing delay)
 =============================== */
-function getPopupForSquare(n) {
+function getSubTextForSquare(n) {
   const entry = popupMap[String(n)];
   if (!entry || typeof entry !== "object") return null;
   const txt = entry.popup;
@@ -471,124 +570,49 @@ function getPopupForSquare(n) {
   return txt;
 }
 
-function maybeArmPopupOnLanding(n, tNow) {
-  if (popupActive) return;
-  if (popupArmed && popupArmed.square === n) return;
-  if (shownPopups.has(String(n))) return;
-
-  const txt = getPopupForSquare(n);
-  if (!txt) return;
-
-  popupArmed = { square: n, showAt: tNow + POPUP_DELAY_MS };
+function clearActiveSubstitutionIfMoved() {
+  if (activeSubSquare !== null && playerSquare !== activeSubSquare) {
+    activeSubSquare = null;
+    activeSubText = "";
+  }
 }
 
-function updatePopup(t) {
-  if (popupActive) return;
-  if (!popupArmed) return;
+function maybeArmSubstitutionOnLanding(n, tNow) {
+  // Only once per square per load
+  if (shownSubstitutions.has(String(n))) return;
 
-  // If player moved away before it fired, cancel it.
-  if (playerSquare !== popupArmed.square) {
-    popupArmed = null;
+  // Must have substitution text
+  const txt = getSubTextForSquare(n);
+  if (!txt) return;
+
+  // Already active/armed for this square
+  if (activeSubSquare === n) return;
+  if (substitutionArmed && substitutionArmed.square === n) return;
+
+  substitutionArmed = { square: n, showAt: tNow + SUB_DELAY_MS };
+}
+
+function updateSubstitution(t) {
+  clearActiveSubstitutionIfMoved();
+
+  if (!substitutionArmed) return;
+
+  // If moved away before it triggers, cancel
+  if (playerSquare !== substitutionArmed.square) {
+    substitutionArmed = null;
     return;
   }
 
-  if (t >= popupArmed.showAt) {
-    popupText = getPopupForSquare(popupArmed.square) || "";
-    popupActive = !!popupText;
-    if (popupActive) {
-      shownPopups.add(String(popupArmed.square));
-      inputLocked = true; // lock movement until dismissed (first keypress)
+  // Trigger
+  if (t >= substitutionArmed.showAt) {
+    const txt = getSubTextForSquare(substitutionArmed.square);
+    if (txt) {
+      activeSubSquare = substitutionArmed.square;
+      activeSubText = txt;
+      shownSubstitutions.add(String(substitutionArmed.square));
     }
-    popupArmed = null;
+    substitutionArmed = null;
   }
-}
-
-function dismissPopup() {
-  if (!popupActive) return;
-  popupActive = false;
-  popupText = "";
-  inputLocked = false; // allow next keypress to do something
-}
-
-function drawPopupOverlay(t) {
-  if (!popupActive) return;
-
-  const S = canvas.clientWidth;
-  const pad = Math.max(16, S * 0.07);
-  const boxW = S - pad * 2;
-  const boxH = Math.max(S * 0.22, 140);
-
-  const x = pad;
-  const y = (S - boxH) / 2;
-
-  ctx.save();
-
-  // Dim
-  ctx.globalAlpha = 0.58;
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, S, S);
-
-  // Panel
-  ctx.globalAlpha = 0.96;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(x, y, boxW, boxH);
-
-  ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = "rgba(0,0,0,0.75)";
-  ctx.lineWidth = Math.max(2, S * 0.006);
-  ctx.strokeRect(x, y, boxW, boxH);
-
-  // Text
-  const inner = Math.max(14, S * 0.03);
-  const tx = x + inner;
-  const ty = y + inner;
-  const maxW = boxW - inner * 2;
-
-  const bodySize = Math.max(14, Math.round(S * 0.028));
-  const lineGap = Math.round(bodySize * 0.55);
-
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(0,0,0,0.88)";
-  ctx.font = `${bodySize}px system-ui`;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-
-  // simple wrap with newline support
-  const paragraphs = String(popupText).split("\n");
-  let cy = ty;
-
-  for (const para of paragraphs) {
-    const words = para.split(" ");
-    let line = "";
-
-    for (const w of words) {
-      const test = line ? `${line} ${w}` : w;
-      if (ctx.measureText(test).width > maxW) {
-        if (line) {
-          ctx.fillText(line, tx, cy, maxW);
-          cy += bodySize + lineGap;
-        }
-        line = w;
-      } else {
-        line = test;
-      }
-    }
-    if (line) {
-      ctx.fillText(line, tx, cy, maxW);
-      cy += bodySize + lineGap;
-    }
-    cy += bodySize * 0.45; // paragraph gap
-  }
-
-  // Hint (tiny)
-  const hintSize = Math.max(11, Math.round(S * 0.020));
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.font = `600 ${hintSize}px system-ui`;
-  ctx.textAlign = "right";
-  ctx.textBaseline = "bottom";
-  ctx.fillText("Press a movement key to dismiss.", x + boxW - inner, y + boxH - inner);
-
-  ctx.restore();
 }
 
 /* ===============================
@@ -673,8 +697,7 @@ function drawSpinnerOutcome(t) {
 =============================== */
 function beginReturnToHospital(tNow, setRecall) {
   if (playerSquare !== 1 && setRecall) {
-    lastSafeSquare = playerSquare;
-    recallSquare = lastSafeSquare;
+    recallSquare = playerSquare;
     recallExpiresAt = tNow + RECALL_WINDOW_MS;
   }
 
@@ -721,6 +744,8 @@ function attemptRecall(tNow) {
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
   startSpinIfNeeded(playerSquare);
+  // arm substitution for landing square
+  maybeArmSubstitutionOnLanding(playerSquare, tNow);
 }
 
 /* ===============================
@@ -795,8 +820,8 @@ function updateSpin(t) {
     inputLocked = false;
   }
 
-  // Arm popup after the move settles on this square
-  maybeArmPopupOnLanding(playerSquare, t);
+  // arm substitution for landing square after spin resolves
+  maybeArmSubstitutionOnLanding(playerSquare, t);
 }
 
 /* ===============================
@@ -920,7 +945,7 @@ function getHelpLines(tNow) {
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
-      "Pop-up squares: first keypress dismisses, second moves (annoying on purpose).",
+      "Some squares rewrite themselves after you land on them.",
       "Type CHEAT : reveal entire board (toggle)",
       "Esc : close help, or return to jumbled board",
       "",
@@ -991,6 +1016,14 @@ function drawHelpOverlay(t) {
 /* ===============================
    MAIN DRAW
 =============================== */
+function getSquareDisplayText(n) {
+  // If substitution is active for this square, show it
+  if (activeSubSquare === n && activeSubText) return activeSubText;
+
+  // Otherwise show normal square text
+  return squareText[String(n)] || "";
+}
+
 function draw(t) {
   const S = canvas.clientWidth;
   ctx.clearRect(0, 0, S, S);
@@ -1008,13 +1041,13 @@ function draw(t) {
     drawTile(tileBySquare[n], rect);
     drawSpinnerPin(n, rect, visible.has(n));
 
-    const text = squareText[String(n)] || "";
+    const text = getSquareDisplayText(n);
     if (text) {
       if (n === 1 || visible.has(n)) {
-        drawText(text, rect);
+        drawRichText(text, rect, 1);
       } else {
         const a = fogAlphaForSquare(n);
-        drawText(scrambleText(text, n), rect, a);
+        drawRichText(scrambleText(text, n), rect, a);
 
         ctx.save();
         ctx.globalAlpha = fogVeilForSquare(n);
@@ -1064,10 +1097,6 @@ function draw(t) {
     ctx.restore();
   }
 
-  // Pop-up overlay on top of board elements (but under help)
-  drawPopupOverlay(t);
-
-  // Help overlay on very top
   drawHelpOverlay(t);
 }
 
@@ -1083,10 +1112,10 @@ function attemptStep(delta, tNow) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // Arm popup for landing square (if any)
-  maybeArmPopupOnLanding(playerSquare, tNow);
+  // Arm substitution for landing square
+  maybeArmSubstitutionOnLanding(playerSquare, tNow);
 
-  // Spinners resolve after landing; popups for spinner destinations are armed in updateSpin()
+  // Spinner may override landing; substitution for spinner destination is armed in updateSpin()
   if (startSpinIfNeeded(playerSquare)) return;
 
   // Hospital pull
@@ -1133,9 +1162,10 @@ document.addEventListener("keydown", (e) => {
     }
   }
 
-  // Identify key intents
+  // Help is only "?"
   const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
+
   const isRecall = (key === "r");
   const isHome = (code === "Home" || key === "home" || key === "1");
 
@@ -1148,20 +1178,6 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
-
-  // If popup is active: first keypress dismisses only (no movement, no help toggle, no recall/home)
-  if (popupActive) {
-    // Esc should still work to exit reveal/help logic? Your spec says movement/space/arrows dismiss.
-    // We'll allow *any* meaningful key (movement, ? or Esc) to dismiss — but do nothing else.
-    if (isMovementKey || isHelp || isEsc) {
-      e.preventDefault();
-      dismissPopup();
-    }
-    return;
-  }
-
-  // Normal handling
   if (!(isHelp || isEsc || isRecall || isHome || isSpace || isForward || isBack)) return;
   e.preventDefault();
 
@@ -1195,7 +1211,7 @@ function tick(t) {
   if (stringJolt < 0.001) stringJolt = 0;
 
   updateSpin(t);
-  updatePopup(t); // show popup after delay if armed
+  updateSubstitution(t);
   draw(t);
 
   rafId = requestAnimationFrame(tick);
@@ -1229,8 +1245,8 @@ async function start() {
     console.error("data failed to load:", err);
   }
 
-  // On initial load, arm popup if starting square has one (probably not, but consistent)
-  maybeArmPopupOnLanding(playerSquare, performance.now());
+  // Arm substitution if starting square has one (unlikely, but consistent)
+  maybeArmSubstitutionOnLanding(playerSquare, performance.now());
 
   maybeOpenHelpOnFirstVisit();
 
