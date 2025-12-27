@@ -1,4 +1,5 @@
 {
+  "_meta": { "notes": "spinner squares map to possible destinations" },
   "spinners": {
     "4":  [2, 14, 27, 41],
     "9":  [3, 18],
