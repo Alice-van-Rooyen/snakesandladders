@@ -4,7 +4,7 @@ Convalescent Snakes &amp; Ladders GitHub Page repository
 
 ## ✏️ Editing Square Text (JSON Guide)
 
-Each square’s text lives in `data/squares.json` and looks like this:
+Each square’s text lives in `data/text.json` and looks like this:
 
 ```json
 "26": {
