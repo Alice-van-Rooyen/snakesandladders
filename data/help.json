@@ -7,10 +7,11 @@
     "",
     "⟳ Spinner squares: outcome is random.",
     "Hospital pull: sometimes you are snapped back to square 1.",
-    "Recall: if pulled back, press R within {RECALL_SECONDS}s to return.",
+    "Home / 1 : return to square 1",
+    "Recall: press R within a few seconds to return.",
     "",
-    "Home : go to square 1 now",
     "? / H : toggle this help",
     "Esc   : close help"
   ]
 }
+
