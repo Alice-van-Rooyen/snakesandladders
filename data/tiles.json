@@ -1,26 +1,6 @@
 {
   "_meta": { "version": 2 },
 
-  "spinners": {
-    "17": {
-      "type": "move",
-      "choices": [
-        { "label": "Slip", "move": -3 },
-        { "label": "Stall", "move": -1 },
-        { "label": "Lucky", "move": 2 },
-        { "label": "Boost", "move": 5 }
-      ]
-    },
-    "42": {
-      "type": "jump",
-      "choices": [
-        { "label": "Back to 30", "to": 30 },
-        { "label": "Forward to 55", "to": 55 },
-        { "label": "Side quest to 47", "to": 47 }
-      ]
-    }
-  },
-
   "defaultTile": "blue",
 
   "tiles": {
