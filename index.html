@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Snakes Board</title>
+  <title>Pop ups are flash</title>
 
   <style>
     body {
@@ -561,6 +561,7 @@ function getVisibleSet() {
 
 /* ===============================
    SQUARE SUBSTITUTION (replaces square text after landing delay)
+   + tiny in-cell visual cue on activation
 =============================== */
 function getSubTextForSquare(n) {
   const entry = popupMap[String(n)];
@@ -569,6 +570,9 @@ function getSubTextForSquare(n) {
   if (typeof txt !== "string" || !txt.trim()) return null;
   return txt;
 }
+
+let subCue = null;              // { square: number, t0: number }
+const SUB_CUE_MS = 260;         // duration of the in-cell cue
 
 function clearActiveSubstitutionIfMoved() {
   if (activeSubSquare !== null && playerSquare !== activeSubSquare) {
@@ -605,15 +609,54 @@ function updateSubstitution(t) {
 
   // Trigger
   if (t >= substitutionArmed.showAt) {
-    const txt = getSubTextForSquare(substitutionArmed.square);
+    const sq = substitutionArmed.square;
+    const txt = getSubTextForSquare(sq);
+
     if (txt) {
-      activeSubSquare = substitutionArmed.square;
+      activeSubSquare = sq;
       activeSubText = txt;
-      shownSubstitutions.add(String(substitutionArmed.square));
+      shownSubstitutions.add(String(sq));
+
+      // Arm the tiny in-cell cue
+      subCue = { square: sq, t0: t };
     }
+
     substitutionArmed = null;
   }
 }
+
+function drawSubstitutionCue(t, rect, n) {
+  if (!subCue || subCue.square !== n) return;
+
+  const age = t - subCue.t0;
+  if (age >= SUB_CUE_MS) { subCue = null; return; }
+
+  const p = Math.max(0, Math.min(1, age / SUB_CUE_MS));
+  const fade = 1 - p;
+
+  // A quick "wipe" that shrinks + fades, plus a subtle border pulse
+  const inset = rect.w * (0.06 + 0.08 * p);
+  const x = rect.x + inset;
+  const y = rect.y + inset;
+  const w = rect.w - inset * 2;
+  const h = rect.h - inset * 2;
+
+  ctx.save();
+
+  // Soft white wipe
+  ctx.globalAlpha = 0.35 * fade;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x, y, w, h);
+
+  // Border pulse
+  ctx.globalAlpha = 0.55 * fade;
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = Math.max(2, rect.w * 0.05 * fade);
+  ctx.strokeRect(x, y, w, h);
+
+  ctx.restore();
+}
+
 
 /* ===============================
    SPINNERS
