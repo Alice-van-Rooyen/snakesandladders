@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Make it BIG</title>
+  <title>Spin me right round</title>
 
   <style>
     body {
@@ -810,22 +810,104 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 function drawSpinnerPin(n, rect, visible) {
+  // Only mark spinner squares, and only when the square is visible
   if (!spinnerSquares.has(n)) return;
   if (!visible) return;
 
-  const path = spinnerPins[String(n)];
-  if (!path) return;
+  // When you're actively spinning on this square, hide the tiny icon.
+  // The big spinner overlay will be drawn by drawSpinnerOverSquare().
+  if (spinActive && spinSquare === n) return;
 
-  const img = getImage(path);
-  if (!img || !img.complete || img.naturalWidth === 0) return;
+  // Top-right placement
+  const size = rect.w * 0.28;
+  const pad  = rect.w * 0.08;
+  const x = rect.x + rect.w - pad - size;
+  const y = rect.y + pad;
 
-  const size = rect.w * 0.72;
-  const x = rect.x + rect.w * 0.14;
-  const y = rect.y + rect.h * 0.14;
+  // If you provide a custom pin image, draw it SMALL like an icon
+  const customPath = spinnerPins[String(n)];
+  if (customPath) {
+    const img = getImage(customPath);
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.drawImage(img, x, y, size, size);
+      ctx.restore();
+      return;
+    }
+  }
 
+  // Otherwise draw a standard tiny "snake/ladder" icon (vector), understated.
   ctx.save();
-  ctx.globalAlpha = 0.95;
-  ctx.drawImage(img, x, y, size, size);
+
+  // Subtle badge so it reads over busy tiles
+  ctx.globalAlpha = 0.32;
+  ctx.fillStyle = "#fff";
+
+  // Use roundRect if available; fallback to fillRect
+  const bx = x - size * 0.08;
+  const by = y - size * 0.08;
+  const bw = size * 1.16;
+  const bh = size * 1.16;
+  const br = size * 0.18;
+
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, br);
+  else ctx.rect(bx, by, bw, bh);
+  ctx.fill();
+
+  // Icon strokes
+  ctx.globalAlpha = 0.62;
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = Math.max(1, rect.w * 0.015);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Ladder-ish: two rails + 3 rungs
+  const lx1 = x + size * 0.18;
+  const lx2 = x + size * 0.46;
+  const ly1 = y + size * 0.18;
+  const ly2 = y + size * 0.88;
+
+  ctx.beginPath();
+  ctx.moveTo(lx1, ly1); ctx.lineTo(lx1, ly2);
+  ctx.moveTo(lx2, ly1); ctx.lineTo(lx2, ly2);
+  ctx.stroke();
+
+  for (const t of [0.30, 0.52, 0.74]) {
+    const ry = y + size * t;
+    ctx.beginPath();
+    ctx.moveTo(lx1, ry);
+    ctx.lineTo(lx2, ry);
+    ctx.stroke();
+  }
+
+  // Snake-ish squiggle beside it (ambiguous: up or down)
+  const sx = x + size * 0.62;
+  const sy = y + size * 0.22;
+  const sw = size * 0.30;
+  const sh = size * 0.66;
+
+  ctx.beginPath();
+  ctx.moveTo(sx, sy + sh * 0.05);
+  ctx.bezierCurveTo(
+    sx + sw, sy + sh * 0.20,
+    sx - sw, sy + sh * 0.45,
+    sx + sw * 0.9, sy + sh * 0.62
+  );
+  ctx.bezierCurveTo(
+    sx + sw * 1.1, sy + sh * 0.72,
+    sx + sw * 0.2, sy + sh * 0.90,
+    sx + sw * 0.85, sy + sh * 0.98
+  );
+  ctx.stroke();
+
+  // Tiny head dot
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.beginPath();
+  ctx.arc(sx + sw * 0.1, sy + sh * 0.08, Math.max(1.2, rect.w * 0.012), 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
 }
 
