@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Revised Cheetah</title>
+  <title>Snakes Board</title>
 
   <style>
     body {
@@ -50,15 +50,16 @@ const AHEAD = 1;
 const TRAIL_BEHIND = 6;
 let visited = [1];
 
-// Cheat / accessibility toggle (no UI button; key-chord only)
+// Cheat / accessibility toggle (typing "CHEAT")
 let revealAll = false;
-function toggleRevealAll() { revealAll = !revealAll; }
+
+// Flash feedback when cheat toggles
+let cheatFlashUntil = 0;
+const CHEAT_FLASH_MS = 260;
 
 // --- DATA LAYERS (separated) ---
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
 let squareText = {};                                               // data/text.json
-
-// Tile mapping (built from tileConfig)
 let tileBySquare = {};
 
 // Spinners (mechanics)
@@ -420,7 +421,6 @@ function recordMove(toSquare) {
 }
 
 function getVisibleSet() {
-  // If revealAll is true, the whole board is visible
   if (revealAll) {
     const all = new Set();
     for (let n = 1; n <= 100; n++) all.add(n);
@@ -765,10 +765,10 @@ function getHelpLines(tNow) {
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
-      "Ctrl+Alt+Shift+V : reveal entire board (toggle)",
+      "Type CHEAT : reveal entire board (toggle)",
+      "Esc : close help, or return to jumbled board",
       "",
       "? : toggle this help",
-      "Esc   : close help"
     ]
   };
 }
@@ -853,23 +853,19 @@ function draw(t) {
     drawSpinnerPin(n, rect, visible.has(n));
 
     const text = squareText[String(n)] || "";
-    if (!text) {
-      drawSpinnerOverSquare(n, t);
-      continue;
-    }
+    if (text) {
+      if (n === 1 || visible.has(n)) {
+        drawText(text, rect);
+      } else {
+        const a = fogAlphaForSquare(n);
+        drawText(scrambleText(text, n), rect, a);
 
-    if (n === 1 || visible.has(n)) {
-      drawText(text, rect);
-    } else {
-      // fog only when not revealing the full board
-      const a = fogAlphaForSquare(n);
-      drawText(scrambleText(text, n), rect, a);
-
-      ctx.save();
-      ctx.globalAlpha = fogVeilForSquare(n);
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.restore();
+        ctx.save();
+        ctx.globalAlpha = fogVeilForSquare(n);
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.restore();
+      }
     }
 
     drawSpinnerOverSquare(n, t);
@@ -878,6 +874,40 @@ function draw(t) {
   drawTetherString(t);
   drawToken(t);
   drawSpinnerOutcome(t);
+
+  // Recall hint
+  if (canRecall(t)) {
+    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
+    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
+    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
+    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
+
+    ctx.save();
+    ctx.font = `800 ${fontPx}px system-ui`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+
+    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText("↩ R", x, y);
+
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fillText("↩ R", x, y);
+
+    ctx.restore();
+  }
+
+  // Flash feedback on CHEAT toggle
+  if (t < cheatFlashUntil) {
+    const remaining = cheatFlashUntil - t;
+    const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
+    ctx.save();
+    ctx.globalAlpha = 0.42 * a;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, S, S);
+    ctx.restore();
+  }
+
   drawHelpOverlay(t);
 }
 
@@ -904,10 +934,10 @@ function attemptStep(delta, tNow) {
    INPUT
 =============================== */
 
-// --- CHEAT CODE: type "CHEAT" quickly to toggle revealAll ---
+// CHEAT typing: type "CHEAT" quickly (window is max gap between letters)
 let cheatBuffer = "";
 let cheatLastT = 0;
-const CHEAT_TIMEOUT_MS = 900; // max gap between letters
+const CHEAT_TIMEOUT_MS = 700;
 
 function pushCheatChar(ch, tNow) {
   if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
@@ -917,6 +947,7 @@ function pushCheatChar(ch, tNow) {
 
   if (cheatBuffer === "cheat") {
     revealAll = !revealAll;
+    cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
     cheatBuffer = "";
     return true;
   }
@@ -930,18 +961,16 @@ document.addEventListener("keydown", (e) => {
   const rawKey = e.key || "";
   const key = String(rawKey || "").toLowerCase();
 
-  // CHEAT typing takes precedence over everything else
-  if (key.length === 1 && "cheat".includes(key)) {
-    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      const toggled = pushCheatChar(key, tNow);
-      if (toggled) {
-        e.preventDefault();
-        return;
-      }
+  // CHEAT typing has priority (no modifiers)
+  if (key.length === 1 && "cheat".includes(key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const toggled = pushCheatChar(key, tNow);
+    if (toggled) {
+      e.preventDefault();
+      return;
     }
   }
 
-  // Help: only "?"
+  // Help is only "?"
   const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
 
@@ -962,7 +991,12 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
 
   if (isHelp) { toggleHelp(!helpOpen); return; }
-  if (isEsc)  { toggleHelp(false); return; }
+
+  if (isEsc)  {
+    if (helpOpen) { toggleHelp(false); return; }
+    if (revealAll) { revealAll = false; return; } // return to jumbled/fog board
+    return;
+  }
 
   if (helpOpen) return;
 
@@ -977,7 +1011,6 @@ window.addEventListener("blur", () => {
   cheatBuffer = "";
   cheatLastT = 0;
 });
-
 
 /* ===============================
    TICK / LOOP
