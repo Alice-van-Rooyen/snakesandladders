@@ -21,7 +21,6 @@
     "darkyellow":   "assets/tiles/darkyellow.png",
     
     "img_apple": "assets/icons/apple.png",
-    "img_banana": "assets/icons/banana.png"
   },
 
   "tileSets": {
@@ -40,6 +39,21 @@
     "terracotta": [10, 52, 67, 77, 93],
     
     "img_apple": [4],
-    "img_banana": [35]
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    "img_apple": [],
+    
   }
 }
