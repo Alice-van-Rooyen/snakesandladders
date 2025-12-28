@@ -2,7 +2,7 @@
   "_meta": { "version": 2 },
   
   "defaultTile": "blue",
-  "_comment": "default blue tiles: 5, 12, 25, 33, 40, 51, 59, 64, 78, 85, 90, 100",
+  "_comment": "default blue tiles: 5, 12, 25, 33, 40, 51, 59, 64, 78, 85, 90, 100 plus 4, 8, 12, 17, 22, 28, 35, 37, 42, 48, 58, 63, 67, 71, 79, 82, 88, 93, 100 for image text - to be reviewed",
   
   "tiles": {
     "blue":   "assets/tiles/blue.png",
@@ -22,7 +22,7 @@
     
     "img_apple": "assets/icons/apple.png",
   },
-
+  
   "tileSets": {
     "aqua": [1, 6, 30, 37, 42, 53, 61, 87, 96],
     "yellow": [2, 11, 27, 46, 60, 63, 71, 81, 92],
@@ -37,9 +37,6 @@
     "purple": [26, 57, 47, 69, 80, 86],
     "grey": [7, 36, 49],
     "terracotta": [10, 52, 67, 77, 93],
-
-"windows": [4, 8, 12, 17, 22, 28, 35, 37, 42, 48, 58, 63, 67, 71, 79, 82, 88, 93, 100
-
     
     "img_apple": [4],
     "img_apple": [8],
