@@ -37,23 +37,28 @@
     "purple": [26, 57, 47, 69, 80, 86],
     "grey": [7, 36, 49],
     "terracotta": [10, 52, 67, 77, 93],
+
+"windows": [4, 8, 12, 17, 22, 28, 35, 37, 42, 48, 58, 63, 67, 71, 79, 82, 88, 93, 100
+
     
     "img_apple": [4],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    "img_apple": [],
-    
+    "img_apple": [8],
+    "img_apple": [12],
+    "img_apple": [17],
+    "img_apple": [22],
+    "img_apple": [28],
+    "img_apple": [35],
+    "img_apple": [37],
+    "img_apple": [42],
+    "img_apple": [48],
+    "img_apple": [58],
+    "img_apple": 63[],
+    "img_apple": [67],
+    "img_apple": [71],
+    "img_apple": [79],
+    "img_apple": [82],
+    "img_apple": [88],
+    "img_apple": [93],
+    "img_apple": [100]
   }
 }
