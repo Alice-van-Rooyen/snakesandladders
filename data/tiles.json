@@ -21,25 +21,7 @@
     "darkyellow":   "assets/tiles/darkyellow.png",
     
     "img_apple": "assets/icons/apple.png",
-    "img_banana": "assets/icons/banana.png",
-    "img_bin": "assets/icons/bin.png",
-    "img_book": "assets/icons/book.png",
-    "img_choc": "assets/icons/choc.png",
-    "img_clock": "assets/icons/clock.png",
-    "img_cutlery": "assets/icons/cutlery.png",
-    "img_deliveroo": "assets/icons/deliveroo.png",
-    "img_greggs": "assets/icons/greggs.png",
-    "img_heart": "assets/icons/heart.png",
-    "img_hospital": "assets/icons/hospital.png",
-    "img_mail": "assets/icons/mail.png",
-    "img_mickey": "assets/icons/mickey.png",
-    "img_mug": "assets/icons/mug.png",
-    "img_pills": "assets/icons/pills.png",
-    "img_shower": "assets/icons/shower.png",
-    "img_speech": "assets/icons/speech.png",
-    "img_sun": "assets/icons/sun.png",
-    "img_thought": "assets/icons/thought.png",
-    "img_tortoise": "assets/icons/tortoise.png"
+    "img_banana": "assets/icons/banana.png"
   },
 
   "tileSets": {
@@ -58,24 +40,6 @@
     "terracotta": [10, 35, 52, 67, 77, 93],
     
     "img_apple": [4],
-    "img_banana": [35],
-    "img_bin": [],
-    "img_book": [],
-    "img_choc": [],
-    "img_clock": [],
-    "img_cutlery": [],
-    "img_deliveroo": [],
-    "img_greggs": [],
-    "img_heart": [],
-    "img_hospital": [],
-    "img_mail": [],
-    "img_mickey": [],
-    "img_mug": [],
-    "img_pills": [],,
-    "img_shower": [],
-    "img_speech": [],
-    "img_sun": [],
-    "img_thought": [],
-    "img_tortoise": []
+    "img_banana": [35]
   }
 }
