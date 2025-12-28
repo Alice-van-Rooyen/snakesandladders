@@ -1,1 +1,15 @@
-
+  "tiles": {
+    "blue":   "",
+    "pink":   "",
+    "yellow": "",
+    "green":  "",
+    "orange": "",
+    "purple": "",
+    "red":    "",
+    "aqua":   "",
+    "grey":   "",
+    "gold":   "",
+    "peach":  "",,
+    "terracotta":   "",
+    "lime":   "",,
+    "darkyellow":   ""
