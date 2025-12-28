@@ -20,7 +20,7 @@
     "lime":   "assets/tiles/lime.png",
     "darkyellow":   "assets/tiles/darkyellow.png",
     
-    "img_apple": "assets/icons/apple.png",
+    "img_apple": "assets/icons/apple.png"
   },
   
   "tileSets": {
