@@ -135,6 +135,13 @@ function getImage(path) {
   return img;
 }
 
+  // --- WINDOW DOODLE SQUARES (art when not there, text when there) ---
+let windowSquares = new Set();      // squares that hide text unless you're on them
+let windowPlainTilePath = "";       // resolved from tiles.json
+const WINDOW_DELAY_MS = 240;        // delay after landing before swapping to plain+text
+let windowArmed = null;             // { square:number, revealAt:number }
+let windowRevealed = null;          // number | null (currently revealed window square)
+
 /* ===============================
    RESIZE
 =============================== */
@@ -328,6 +335,30 @@ function preloadImages(paths) {
   return Promise.all(promises);
 }
 
+  async function loadWindows() {
+  // Optional: data/windows.json
+  // Format: { "defaultPlainTile": "blue", "windows": [4,12,36] }
+  try {
+    const res = await fetch("data/windows.json?v=" + Date.now());
+    if (!res.ok) throw new Error("windows.json not ok");
+    const data = await res.json();
+
+    const arr = Array.isArray(data.windows) ? data.windows : [];
+    windowSquares = new Set(
+      arr.map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 100)
+    );
+
+    const plainName = (typeof data.defaultPlainTile === "string" && data.defaultPlainTile)
+      ? data.defaultPlainTile
+      : (tileConfig.defaultTile || "blue");
+
+    windowPlainTilePath = tileConfig.tiles[plainName] || tileConfig.tiles[tileConfig.defaultTile] || "";
+  } catch {
+    windowSquares = new Set();
+    windowPlainTilePath = tileConfig.tiles[tileConfig.defaultTile] || "";
+  }
+}
+  
 /* ===============================
    TILE
 =============================== */
@@ -339,6 +370,50 @@ function drawTile(tilePath, r) {
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
+/* ===============================
+   WINDOWS REVEAL
+=============================== */
+
+function clearWindowIfMoved() {
+  if (windowRevealed !== null && playerSquare !== windowRevealed) {
+    windowRevealed = null;
+  }
+  if (windowArmed && playerSquare !== windowArmed.square) {
+    windowArmed = null;
+  }
+}
+
+function armWindowOnLanding(square, tNow) {
+  if (!windowSquares.has(square)) return;
+
+  // If already revealed/armed for this square, do nothing
+  if (windowRevealed === square) return;
+  if (windowArmed && windowArmed.square === square) return;
+
+  windowArmed = { square, revealAt: tNow + WINDOW_DELAY_MS };
+}
+
+function updateWindowReveal(t) {
+  clearWindowIfMoved();
+
+  if (!windowArmed) return;
+  if (playerSquare !== windowArmed.square) { windowArmed = null; return; }
+
+  if (t >= windowArmed.revealAt) {
+    windowRevealed = windowArmed.square;
+    windowArmed = null;
+  }
+}
+
+function isWindowShowingText(square) {
+  // When cheat reveal is on, show text everywhere (including window squares)
+  if (revealAll) return true;
+
+  // Otherwise, only show text when the window has revealed on your current square
+  return windowRevealed === square && playerSquare === square;
+}
+
+  
 /* ===============================
    TEXT: fog + markdown-lite bold (**bold**)
 =============================== */
@@ -1102,7 +1177,7 @@ function updateSpin(t) {
 
   recordMove(to);
   stringJolt = Math.min(1.2, stringJolt + 0.45);
-
+  
   const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
   const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
   if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
@@ -1113,6 +1188,7 @@ function updateSpin(t) {
   }
 
   maybeArmSubstitutionOnLanding(playerSquare, t);
+  armWindowOnLanding(playerSquare, t);
 }
 
 /* ===============================
@@ -1309,8 +1385,12 @@ function drawHelpOverlay(t) {
    MAIN DRAW
 =============================== */
 function getSquareDisplayText(n) {
+  // Substitution overrides everything for that square
   if (activeSubSquare === n && activeSubText) return activeSubText;
-  return squareText[String(n)] || "";
+
+  // Normal text from squareInfo
+  const entry = squareInfo[String(n)];
+  return (entry && typeof entry.text === "string") ? entry.text : "";
 }
 
 function draw(t) {
@@ -1327,12 +1407,32 @@ function draw(t) {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
 
-    drawTile(tileBySquare[n], rect);
-    drawSpinnerPin(n, rect, visible.has(n));
+    const isVis = visible.has(n) || n === 1;
+    const isWindow = windowSquares.has(n);
 
+    // Decide which background to draw for this square
+    let bgPath = tileBySquare[n];
+
+    // If it's a window square and it's currently showing text (you're on it + revealed, or cheat),
+    // swap to plain background for readability.
+    if (isWindow && isWindowShowingText(n) && windowPlainTilePath) {
+      bgPath = windowPlainTilePath;
+    }
+
+    // Draw background
+    drawTile(bgPath, rect);
+
+    // Optional spinner pin art (only on visible squares)
+    drawSpinnerPin(n, rect, isVis);
+
+    // Text rules
     const text = getSquareDisplayText(n);
-    if (text) {
-      if (n === 1 || visible.has(n)) {
+
+    // Window rule: hide text unless (a) cheat reveal, or (b) you're on it and it's revealed.
+    const allowText = !isWindow || isWindowShowingText(n);
+
+    if (text && allowText) {
+      if (isVis) {
         drawRichText(text, rect, 1);
       } else {
         const a = fogAlphaForSquare(n);
@@ -1344,16 +1444,26 @@ function draw(t) {
         ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
         ctx.restore();
       }
+    } else if (!isVis && text && !allowText) {
+      // Even when window hides text, keep fog veil so the square still "belongs" to the haze
+      ctx.save();
+      ctx.globalAlpha = fogVeilForSquare(n);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
     }
 
+    // Per-square overlays
     drawSubstitutionCue(t, rect, n);
     drawSpinnerOverSquare(n, t);
   }
 
+  // Global overlays
   drawTetherString(t);
   drawToken(t);
   drawSpinnerOutcome(t);
 
+  // Recall hint (drawn on top)
   if (canRecall(t)) {
     const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
     const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
@@ -1375,6 +1485,7 @@ function draw(t) {
     ctx.restore();
   }
 
+  // Flash feedback on CHEAT toggle
   if (t < cheatFlashUntil) {
     const remaining = cheatFlashUntil - t;
     const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
@@ -1390,18 +1501,13 @@ function draw(t) {
   drawHelpOverlay(t);
 }
 
+
+
 /* ===============================
    MOVEMENT (1 square at a time)
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
-
-  // If we're standing on a revealed spinner square, the NEXT keypress flings us.
-  // No stepping. No negotiation. 😂
-  if (triggerSpinnerJump(tNow)) return;
-
-  // If spinner is armed but not yet revealed, ignore movement until reveal happens.
-  if (spinnerLanding && spinnerLanding.square === playerSquare && !spinnerLanding.revealed) return;
 
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
@@ -1409,16 +1515,16 @@ function attemptStep(delta, tNow) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // Arm substitution for landing square
+  // Arm substitution (text rewrite squares)
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
 
-  // NEW: if we landed on a spinner square, don't spin yet — arm the delayed reveal
-  if (spinnerSquares.has(playerSquare)) {
-    armSpinnerLanding(playerSquare, tNow);
-    return; // stop here: no hospital pull until after spinner resolves
-  }
+  // NEW: arm window behaviour if this is a doodle window square
+  armWindowOnLanding(playerSquare, tNow);
 
-  // Hospital pull (only for normal squares)
+  // Spinner may override landing
+  if (startSpinIfNeeded(playerSquare)) return;
+
+  // Hospital pull
   hospitalPullMaybe(tNow);
 }
 
@@ -1524,13 +1630,15 @@ function tick(t) {
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  updateSpinnerLanding(t);   // NEW
+  updateWindowReveal(t);     // NEW
   updateSpin(t);
   updateSubstitution(t);
   draw(t);
 
   rafId = requestAnimationFrame(tick);
 }
+
+
 
 /* ===============================
    START
@@ -1554,7 +1662,8 @@ async function start() {
       loadJumps(),
       loadHelpCopy(),
       loadSpinnerArt(),
-      loadPopups()
+      loadPopups(),
+      loadWindows() 
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
