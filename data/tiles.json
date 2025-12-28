@@ -58,7 +58,7 @@
     "terracotta": [10, 35, 52, 67, 77, 93],
     
     "img_apple": [4],
-    "img_banana": [],
+    "img_banana": [35],
     "img_bin": [],
     "img_book": [],
     "img_choc": [],
