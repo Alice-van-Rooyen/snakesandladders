@@ -413,7 +413,6 @@ function isWindowShowingText(square) {
   return windowRevealed === square && playerSquare === square;
 }
 
-  
 /* ===============================
    TEXT: fog + markdown-lite bold (**bold**)
 =============================== */
@@ -1388,9 +1387,8 @@ function getSquareDisplayText(n) {
   // Substitution overrides everything for that square
   if (activeSubSquare === n && activeSubText) return activeSubText;
 
-  // Normal text from squareInfo
-  const entry = squareInfo[String(n)];
-  return (entry && typeof entry.text === "string") ? entry.text : "";
+  // Normal text from squareText map
+  return squareText[String(n)] || "";
 }
 
 function draw(t) {
@@ -1413,8 +1411,7 @@ function draw(t) {
     // Decide which background to draw for this square
     let bgPath = tileBySquare[n];
 
-    // If it's a window square and it's currently showing text (you're on it + revealed, or cheat),
-    // swap to plain background for readability.
+    // Window: on your current square (after reveal), swap to plain tile for readability
     if (isWindow && isWindowShowingText(n) && windowPlainTilePath) {
       bgPath = windowPlainTilePath;
     }
@@ -1422,7 +1419,7 @@ function draw(t) {
     // Draw background
     drawTile(bgPath, rect);
 
-    // Optional spinner pin art (only on visible squares)
+    // Spinner doodle reveal on current square
     drawSpinnerPin(n, rect, isVis);
 
     // Text rules
@@ -1463,28 +1460,6 @@ function draw(t) {
   drawToken(t);
   drawSpinnerOutcome(t);
 
-  // Recall hint (drawn on top)
-  if (canRecall(t)) {
-    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
-    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
-    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
-    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
-
-    ctx.save();
-    ctx.font = `800 ${fontPx}px system-ui`;
-    ctx.textAlign = "right";
-    ctx.textBaseline = "bottom";
-
-    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText("↩ R", x, y);
-
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.fillText("↩ R", x, y);
-
-    ctx.restore();
-  }
-
   // Flash feedback on CHEAT toggle
   if (t < cheatFlashUntil) {
     const remaining = cheatFlashUntil - t;
@@ -1503,11 +1478,19 @@ function draw(t) {
 
 
 
+
 /* ===============================
    MOVEMENT (1 square at a time)
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
+  
+// If we're on a spinner square and the doodle is revealed,
+// the next movement key triggers the jump instead of stepping.
+if (spinnerReadyOnCurrentSquare()) {
+  triggerSpinnerJump(tNow);
+  return;
+}
 
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
@@ -1520,6 +1503,8 @@ function attemptStep(delta, tNow) {
 
   // NEW: arm window behaviour if this is a doodle window square
   armWindowOnLanding(playerSquare, tNow);
+
+  armSpinnerLanding(playerSquare, tNow);
 
   // Spinner may override landing
   if (startSpinIfNeeded(playerSquare)) return;
@@ -1630,13 +1615,15 @@ function tick(t) {
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  updateWindowReveal(t);     // NEW
+  updateWindowReveal(t);
+  updateSpinnerLanding(t);   // <-- ADD THIS
   updateSpin(t);
   updateSubstitution(t);
   draw(t);
 
   rafId = requestAnimationFrame(tick);
 }
+
 
 
 
@@ -1671,6 +1658,8 @@ async function start() {
 
   maybeArmSubstitutionOnLanding(playerSquare, performance.now());
   maybeOpenHelpOnFirstVisit();
+  armWindowOnLanding(playerSquare, performance.now());
+  armSpinnerLanding(playerSquare, performance.now());
 
   if (rafId) cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(tick);
