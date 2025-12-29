@@ -381,8 +381,15 @@ function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  const pad = r.w * 0.06;
-  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+  // integer padding to avoid subpixel blur
+  const pad = Math.max(0, Math.round(r.w * 0.06));
+
+  const x = Math.round(r.x + pad);
+  const y = Math.round(r.y + pad);
+  const w = Math.round(r.w - 2 * pad);
+  const h = Math.round(r.h - 2 * pad);
+
+  ctx.drawImage(img, x, y, w, h);
 }
 
 /* ===============================
