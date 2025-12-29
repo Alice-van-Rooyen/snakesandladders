@@ -1,0 +1,19 @@
+{
+  "_meta": { "version": 1 },
+    
+  "tiles": {
+    "blue":   "#8daff3",
+    "pink":   "#f0c6eb",
+    "yellow": "#fefe68",
+    "green":  "#47d45a",
+    "orange": "#ff6600",
+    "purple": "#c46ae0",
+    "red":    "#ff4743",
+    "aqua":   "#9aeed8",
+    "grey":   "#d1d1d1",
+    "gold":   "#e2ac00",
+    "peach":  "#f9d6c3",
+    "terracotta":   "#eb8c3d",
+    "lime":   "#99fa37",
+    "darkyellow":   "#ffc000"
+  }
