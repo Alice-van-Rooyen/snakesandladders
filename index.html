@@ -186,10 +186,13 @@ function squareToRowCol(n) {
 }
 
 function cellRect(row, col) {
-  const S = canvas.clientWidth;
-  const cell = S / 10;
-  return { x: col * cell, y: row * cell, w: cell, h: cell };
+  const S = canvas.clientWidth;    // now snapped to multiple of 10
+  const cell = (S / 10) | 0;       // integer (82)
+  const x = col * cell;
+  const y = row * cell;
+  return { x, y, w: cell, h: cell };
 }
+
 
 function squareCornerAnchor(n, corner, padFrac) {
   const { row, col } = squareToRowCol(n);
@@ -381,15 +384,16 @@ function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  // integer padding to avoid subpixel blur
+  // Integer padding so we never draw on half pixels
   const pad = Math.max(0, Math.round(r.w * 0.06));
 
-  const x = Math.round(r.x + pad);
-  const y = Math.round(r.y + pad);
-  const w = Math.round(r.w - 2 * pad);
-  const h = Math.round(r.h - 2 * pad);
+  const x = r.x + pad;
+  const y = r.y + pad;
+  const w = r.w - 2 * pad;
+  const h = r.h - 2 * pad;
 
-  ctx.drawImage(img, x, y, w, h);
+  // Integer destination rect
+  ctx.drawImage(img, x | 0, y | 0, w | 0, h | 0);
 }
 
 /* ===============================
