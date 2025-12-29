@@ -27,7 +27,7 @@
     "img_choc": "assets/icons/choc.png",
     "img_book": "assets/icons/book.png",
     "img_bin": "assets/icons/bin.png",
-    "img_clock": "assets/icons/clock.png",
+    "img_clock": "assets/icons/clock240.png",
     "img_cutlery": "assets/icons/cutlery.png",
     "img_deliveroo": "assets/icons/deliveroo.png",
     "img_greggs": "assets/icons/greggs.png",
@@ -39,7 +39,7 @@
     "img_speech-red": "assets/icons/speech-red.png",
     "img_speech-purple": "assets/icons/speech-purple.png",
     "img_sun": "assets/icons/sun.png",
-    "img_thought": "assets/icons/thought.png",
+    "img_thought": "assets/icons/thought240.png",
     "img_tortoise": "assets/icons/tortoise.png"
   },
   
