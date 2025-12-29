@@ -147,14 +147,29 @@ let windowRevealed = null;          // number | null (currently revealed window 
 =============================== */
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const size = canvas.clientWidth;
 
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
+  // CSS size (can be odd like 823)
+  const css = canvas.clientWidth;
 
+  // Quantize to a multiple of 10 CSS pixels so each cell is integer px
+  // (and your padding math lands on cleaner numbers too)
+  const snappedCss = Math.max(200, Math.round(css / 10) * 10);
+
+  // Make the DOM element match the snapped size so layout and math agree
+  canvas.style.width = snappedCss + "px";
+  canvas.style.height = snappedCss + "px";
+
+  // Actual render buffer (device pixels)
+  canvas.width = Math.round(snappedCss * dpr);
+  canvas.height = Math.round(snappedCss * dpr);
+
+  // Draw using CSS pixel units
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Keep this off for handmade line quality (prevents blur)
   ctx.imageSmoothingEnabled = false;
 }
+
 
 /* ===============================
    GRID MATH
