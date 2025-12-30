@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Convalescent Snakes & Ladders</title>
+  <title>Alice is irritated (and hungry)</title>
 
   <style>
     body {
@@ -43,6 +43,9 @@ board.src = "assets/board.png";
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
 
+// Spinner “big overlay” icon when you land on a spinner square
+const SPINNER_ICON_PATH = "assets/icons/snakes.svg";
+
 let playerSquare = 1;
 
 // Visibility tuning
@@ -57,37 +60,24 @@ let revealAll = false;
 let cheatFlashUntil = 0;
 const CHEAT_FLASH_MS = 260;
 
-// --- DATA LAYERS (separated) ---
+// --- DATA LAYERS ---
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
-let squareText = {};                                               // parsed from data/text.json: { "n": { text, icon } }
+let squareData = {};                                                // data/text.json (supports {text, icon})
 let tileBySquare = {};
+
+// “Windows” list (squares whose icons hide until you land, then icon disappears and text shows)
+let windowSquares = new Set();      // data/windows.json -> { windows:[...], ... }
+const WINDOW_DELAY_MS = 240;        // delay after landing before swapping icon->text
+let windowArmed = null;             // { square:number, revealAt:number }
+let windowRevealed = null;          // number|null (currently revealed window square)
 
 // Spinners (mechanics)
 let spinnerMap = {};          // { from: [to,to,...] }
 let spinnerSquares = new Set();
 
-// Optional spinner art (NOT required; safe if missing)
-let spinnerPins = {};         // { from: "path.png" }
-let spinnerOutcomes = {};     // { from: { to: "path.png" } }
-
-// Substitution squares (popups.json)
-let popupMap = {};               // { "36": { popup: "..." }, ... }
-let substitutionArmed = null;    // { square, showAt }
-let activeSubSquare = null;      // number or null
-let activeSubText = "";          // string
-let SUB_DELAY_MS = 320;          // delay before substitution text appears
-
-// Spinner landing reveal (your snakes.svg behaviour)
-const SPINNER_REVEAL_MS = 260;     // delay after landing before snakes.svg appears
-let spinnerLanding = null;         // { square:number, revealAt:number, revealed:boolean }
-
-// Last resolved spinner outcome (optional art)
-let lastSpin = null;          // { from, to, t0, imgPath }
-const SPIN_OUTCOME_MS = 900;
-
-// Animation / interaction state
-let rafId = null;
-let inputLocked = false;
+// Spinner landing reveal behaviour:
+const SPINNER_REVEAL_MS = 260;       // delay after landing before snakes icon appears
+let spinnerLanding = null;           // { square:number, revealAt:number, revealed:boolean }
 
 // Spin state (actual jump animation)
 let spinActive = false;
@@ -95,6 +85,7 @@ let spinSquare = null;
 let spinStartT = 0;
 let spinDurationMs = 700;
 let pendingJumpTo = null;
+let inputLocked = false;
 
 // Hospital pull + recall
 const HOSPITAL_PULL_CHANCE = 0.03;
@@ -123,13 +114,7 @@ let PIN_PAD_FRAC   = 0.10;         // hospital knot anchor
 let RECALL_LABEL_X_FRAC = 0.14;    // move label left
 let RECALL_LABEL_Y_FRAC = 0.08;    // smaller = lower label
 
-// Icon-first -> text-second behaviour (derived from icon presence in text.json)
-// When revealed, uses tileBySquare[n] (your tiles.json colour allocation), NOT forced blue.
-let iconWindowArmed = null;     // { square:number, revealAt:number }
-let iconWindowRevealed = null;  // number | null
-let ICON_WINDOW_DELAY_MS = 260;
-
-// Image cache (supports png/jpg/webp/svg)
+// Image cache
 const imageCache = new Map();
 function getImage(path) {
   if (!path) return null;
@@ -151,7 +136,7 @@ function resizeCanvas() {
   canvas.height = Math.round(size * dpr);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = true; // helps with SVG + any scaling
+  ctx.imageSmoothingEnabled = true; // SVGs look better with smoothing
 }
 
 /* ===============================
@@ -204,60 +189,56 @@ async function loadTiles() {
 
   const defaultPath = tileConfig.tiles[tileConfig.defaultTile];
 
-  // Build tileBySquare
   tileBySquare = {};
   for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
 
-  for (const colourName of Object.keys(tileConfig.tileSets)) {
-    const path = tileConfig.tiles[colourName];
-    for (const n of (tileConfig.tileSets[colourName] || [])) {
+  for (const name of Object.keys(tileConfig.tileSets)) {
+    const path = tileConfig.tiles[name];
+    for (const n of (tileConfig.tileSets[name] || [])) {
       tileBySquare[n] = path;
     }
   }
 
-  // Preload unique tile images
   const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
   await preloadImages([...uniquePaths]);
 }
 
 async function loadText() {
   // Accept either:
-  // 1) flat map: { "1":"...", "2":"..." } (no icons)
+  // 1) flat map: { "1":"...", "2":"..." }
   // 2) nested: { "squares": { "1": { "text":"...", "icon":"..." }, ... } }
   const res = await fetch("data/text.json?v=" + Date.now());
   const data = await res.json();
 
+  // Normalise to: squareData["n"] = { text?:string, icon?:string }
   const out = {};
 
   if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
     for (const [k, v] of Object.entries(data.squares)) {
-      if (typeof v === "string") {
-        out[k] = { text: v, icon: "" };
-      } else if (v && typeof v === "object") {
-        out[k] = {
-          text: (typeof v.text === "string") ? v.text : "",
-          icon: (typeof v.icon === "string") ? v.icon : ""
-        };
+      if (typeof v === "string") out[k] = { text: v };
+      else if (v && typeof v === "object") {
+        const text = (typeof v.text === "string") ? v.text : "";
+        const icon = (typeof v.icon === "string" && v.icon.trim()) ? v.icon.trim() : "";
+        out[k] = { text, icon };
       }
     }
-    squareText = out;
+    squareData = out;
     return;
   }
 
-  // flat map fallback
+  // Flat map fallback
   if (data && typeof data === "object") {
     for (const [k, v] of Object.entries(data)) {
-      if (typeof v === "string") out[k] = { text: v, icon: "" };
+      if (typeof v === "string") out[k] = { text: v };
       else if (v && typeof v === "object") {
-        out[k] = {
-          text: (typeof v.text === "string") ? v.text : "",
-          icon: (typeof v.icon === "string") ? v.icon : ""
-        };
+        const text = (typeof v.text === "string") ? v.text : "";
+        const icon = (typeof v.icon === "string" && v.icon.trim()) ? v.icon.trim() : "";
+        out[k] = { text, icon };
       }
     }
   }
 
-  squareText = out;
+  squareData = out;
 }
 
 async function loadJumps() {
@@ -316,31 +297,20 @@ async function loadHelpCopy() {
   }
 }
 
-async function loadSpinnerArt() {
-  // Optional: data/spinner_art.json (safe if missing)
+async function loadWindows() {
+  // Optional: data/windows.json
+  // Format: { "windows": [4,12,36] }
   try {
-    const res = await fetch("data/spinner_art.json?v=" + Date.now());
-    if (!res.ok) throw new Error("spinner_art.json not ok");
+    const res = await fetch("data/windows.json?v=" + Date.now());
+    if (!res.ok) throw new Error("windows.json not ok");
     const data = await res.json();
 
-    spinnerPins = (data && typeof data.pins === "object") ? data.pins : {};
-    spinnerOutcomes = (data && typeof data.outcomes === "object") ? data.outcomes : {};
+    const arr = Array.isArray(data.windows) ? data.windows : [];
+    windowSquares = new Set(
+      arr.map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 100)
+    );
   } catch {
-    spinnerPins = {};
-    spinnerOutcomes = {};
-  }
-}
-
-async function loadPopups() {
-  // Optional: data/popups.json
-  // Format: { "36": { "popup": "..." }, ... }
-  try {
-    const res = await fetch("data/popups.json?v=" + Date.now());
-    if (!res.ok) throw new Error("popups.json not ok");
-    const data = await res.json();
-    popupMap = (data && typeof data === "object") ? data : {};
-  } catch {
-    popupMap = {};
+    windowSquares = new Set();
   }
 }
 
@@ -356,7 +326,7 @@ function preloadImages(paths) {
 }
 
 /* ===============================
-   TILE DRAW
+   DRAW: TILE + ICON OVERLAY (transparent SVGs)
 =============================== */
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
@@ -366,13 +336,48 @@ function drawTile(tilePath, r) {
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-// Full-bleed image tile (for icons/snakes.svg)
-function drawIconTile(iconPath, r) {
+function drawIcon(iconPath, r, opts = {}) {
   const img = getImage(iconPath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  const pad = r.w * 0.06;
+  // Full-ish coverage so it reads as “tile art”
+  const pad = (opts.padFrac ?? 0.06) * r.w;
+  ctx.save();
+  ctx.globalAlpha = (opts.alpha ?? 1);
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
+  ctx.restore();
+}
+
+/* ===============================
+   WINDOWS (icon-first, then text reveals on landing)
+=============================== */
+function clearWindowIfMoved() {
+  if (windowRevealed !== null && playerSquare !== windowRevealed) windowRevealed = null;
+  if (windowArmed && playerSquare !== windowArmed.square) windowArmed = null;
+}
+
+function armWindowOnLanding(square, tNow) {
+  if (!windowSquares.has(square)) return;
+
+  // Always arm on landing (every time)
+  windowArmed = { square, revealAt: tNow + WINDOW_DELAY_MS };
+}
+
+function updateWindowReveal(t) {
+  clearWindowIfMoved();
+
+  if (!windowArmed) return;
+  if (playerSquare !== windowArmed.square) { windowArmed = null; return; }
+
+  if (t >= windowArmed.revealAt) {
+    windowRevealed = windowArmed.square;
+    windowArmed = null;
+  }
+}
+
+function isWindowRevealedForSquare(n) {
+  if (revealAll) return true; // cheat shows everything
+  return (windowRevealed === n && playerSquare === n);
 }
 
 /* ===============================
@@ -512,9 +517,9 @@ function drawRichText(text, r, alpha = 1) {
   while (fontSize >= 6) {
     const lines = layoutRichText(text, maxWidth, fontSize);
 
-    // tighter paragraph gap than your earlier version
-    const lineH = Math.round(fontSize * 1.12);
-    const gapH  = Math.round(lineH * 0.22);
+    // Tighten the \n spacing (you asked for smaller)
+    const lineH = Math.round(fontSize * 1.10);
+    const gapH  = Math.round(lineH * 0.18);
     const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
 
     if (blockH <= r.h - padding * 2) {
@@ -525,9 +530,7 @@ function drawRichText(text, r, alpha = 1) {
         if (item.type === "gap") { y += gapH; continue; }
 
         let lineW = 0;
-        for (const run of item.runs) {
-          lineW += measureRunText(fontSize, run.bold, run.text);
-        }
+        for (const run of item.runs) lineW += measureRunText(fontSize, run.bold, run.text);
 
         let x = cx - lineW / 2;
 
@@ -536,6 +539,7 @@ function drawRichText(text, r, alpha = 1) {
           ctx.fillText(run.text, x, y);
           x += ctx.measureText(run.text).width;
         }
+
         y += lineH;
       }
 
@@ -584,137 +588,7 @@ function getVisibleSet() {
 }
 
 /* ===============================
-   POPUPS / SUBSTITUTIONS (popups.json)
-=============================== */
-function getSubTextForSquare(n) {
-  const entry = popupMap[String(n)];
-  if (!entry || typeof entry !== "object") return null;
-  const txt = entry.popup;
-  if (typeof txt !== "string" || !txt.trim()) return null;
-  return txt;
-}
-
-let subCue = null;              // { square: number, t0: number }
-const SUB_CUE_MS = 260;
-
-function clearActiveSubstitutionIfMoved() {
-  if (activeSubSquare !== null && playerSquare !== activeSubSquare) {
-    activeSubSquare = null;
-    activeSubText = "";
-  }
-}
-
-function maybeArmSubstitutionOnLanding(n, tNow) {
-  const txt = getSubTextForSquare(n);
-  if (!txt) return;
-
-  // always arm (every time you land)
-  substitutionArmed = { square: n, showAt: tNow + SUB_DELAY_MS };
-}
-
-function updateSubstitution(t) {
-  clearActiveSubstitutionIfMoved();
-
-  if (!substitutionArmed) return;
-
-  if (playerSquare !== substitutionArmed.square) {
-    substitutionArmed = null;
-    return;
-  }
-
-  if (t >= substitutionArmed.showAt) {
-    const sq = substitutionArmed.square;
-    const txt = getSubTextForSquare(sq);
-
-    if (txt) {
-      activeSubSquare = sq;
-      activeSubText = txt;
-      subCue = { square: sq, t0: t };
-    }
-
-    substitutionArmed = null;
-  }
-}
-
-function drawSubstitutionCue(t, rect, n) {
-  if (!subCue || subCue.square !== n) return;
-
-  const age = t - subCue.t0;
-  if (age >= SUB_CUE_MS) { subCue = null; return; }
-
-  const p = Math.max(0, Math.min(1, age / SUB_CUE_MS));
-  const fade = 1 - p;
-
-  const inset = rect.w * (0.06 + 0.08 * p);
-  const x = rect.x + inset;
-  const y = rect.y + inset;
-  const w = rect.w - inset * 2;
-  const h = rect.h - inset * 2;
-
-  ctx.save();
-  ctx.globalAlpha = 0.35 * fade;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(x, y, w, h);
-
-  ctx.globalAlpha = 0.55 * fade;
-  ctx.strokeStyle = "rgba(0,0,0,0.55)";
-  ctx.lineWidth = Math.max(2, rect.w * 0.05 * fade);
-  ctx.strokeRect(x, y, w, h);
-  ctx.restore();
-}
-
-/* ===============================
-   ICON-FIRST → TEXT-SECOND (from text.json icon)
-   Default view: icon tile
-   Landing: after delay, show text over tileBySquare[n]
-=============================== */
-function getIconForSquare(n) {
-  const entry = squareText[String(n)];
-  if (!entry || typeof entry !== "object") return "";
-  const icon = entry.icon;
-  return (typeof icon === "string" && icon.trim()) ? icon.trim() : "";
-}
-
-function isIconSquare(n) {
-  return !!getIconForSquare(n);
-}
-
-function clearIconWindowIfMoved() {
-  if (iconWindowRevealed !== null && playerSquare !== iconWindowRevealed) {
-    iconWindowRevealed = null;
-  }
-  if (iconWindowArmed && playerSquare !== iconWindowArmed.square) {
-    iconWindowArmed = null;
-  }
-}
-
-function armIconWindowOnLanding(square, tNow) {
-  if (!isIconSquare(square)) return;
-
-  // always arm on landing (every time), but avoid duplicate arming in same square
-  if (iconWindowArmed && iconWindowArmed.square === square) return;
-
-  iconWindowArmed = { square, revealAt: tNow + ICON_WINDOW_DELAY_MS };
-}
-
-function updateIconWindowReveal(t) {
-  clearIconWindowIfMoved();
-  if (!iconWindowArmed) return;
-  if (playerSquare !== iconWindowArmed.square) { iconWindowArmed = null; return; }
-
-  if (t >= iconWindowArmed.revealAt) {
-    iconWindowRevealed = iconWindowArmed.square;
-    iconWindowArmed = null;
-  }
-}
-
-function isIconWindowShowingText(square) {
-  if (revealAll) return true; // CHEAT: show text everywhere
-  return (iconWindowRevealed === square && playerSquare === square);
-}
-
-/* ===============================
-   SPINNERS (your snakes.svg landing reveal)
+   SPINNERS (land → pause → snakes icon → next keypress flings you)
 =============================== */
 function randInt(maxExclusive) {
   if (maxExclusive <= 1) return 0;
@@ -734,8 +608,10 @@ function chooseSpinnerDestination(fromSquare) {
 }
 
 function armSpinnerLanding(square, tNow) {
+  if (revealAll) return;              // cheat mode: spinners disabled
   if (!spinnerSquares.has(square)) return;
   if (spinActive) return;
+
   spinnerLanding = { square, revealAt: tNow + SPINNER_REVEAL_MS, revealed: false };
 }
 
@@ -752,17 +628,18 @@ function updateSpinnerLanding(t) {
   }
 }
 
-function spinnerSnakesShowingNow() {
+function spinnerReadyOnCurrentSquare() {
   return (
     spinnerLanding &&
     spinnerLanding.square === playerSquare &&
     spinnerLanding.revealed === true &&
-    !spinActive
+    !spinActive &&
+    !revealAll
   );
 }
 
 function triggerSpinnerJump(tNow) {
-  if (!spinnerSnakesShowingNow()) return false;
+  if (!spinnerReadyOnCurrentSquare()) return false;
 
   const from = playerSquare;
   const to = chooseSpinnerDestination(from);
@@ -781,8 +658,8 @@ function triggerSpinnerJump(tNow) {
   return true;
 }
 
+// Legacy spinner animation overlay (black arc) — keep it, but now it only shows during the jump
 function drawSpinnerOverSquare(n, t) {
-  // Keep the spinning black circle ONLY during the actual jump animation.
   if (!spinActive || spinSquare !== n) return;
 
   const { x, y, r } = squareCenter(n);
@@ -792,7 +669,7 @@ function drawSpinnerOverSquare(n, t) {
   const rot = (t - spinStartT) * 0.018;
 
   ctx.save();
-  ctx.globalAlpha = 0.18;
+  ctx.globalAlpha = 0.14;
   ctx.fillStyle = "#fff";
   ctx.fillRect(r.x, r.y, r.w, r.h);
   ctx.restore();
@@ -802,7 +679,7 @@ function drawSpinnerOverSquare(n, t) {
   ctx.rotate(rot);
 
   ctx.lineWidth = Math.max(2, r.w * 0.05);
-  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.strokeStyle = "rgba(0,0,0,0.70)";
   ctx.lineCap = "round";
 
   const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
@@ -823,61 +700,14 @@ function updateSpin(t) {
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
-  const fromSquare = spinSquare;
-
   recordMove(to);
   stringJolt = Math.min(1.2, stringJolt + 0.45);
 
-  // Optional outcome art
-  const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
-  const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
-  if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
-  else lastSpin = null;
-
   inputLocked = false;
 
-  // landing effects
-  maybeArmSubstitutionOnLanding(playerSquare, t);
-  armIconWindowOnLanding(playerSquare, t);
+  // landing: re-arm behaviours on the destination
+  armWindowOnLanding(playerSquare, t);
   armSpinnerLanding(playerSquare, t);
-}
-
-/* ===============================
-   SPINNER OUTCOME ART (optional)
-=============================== */
-function drawSpinnerOutcome(t) {
-  if (!lastSpin) return;
-
-  const age = t - lastSpin.t0;
-  if (age > SPIN_OUTCOME_MS) { lastSpin = null; return; }
-
-  const from = squareCenter(lastSpin.from);
-  const to = squareCenter(lastSpin.to);
-
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const angle = Math.atan2(dy, dx);
-
-  const img = getImage(lastSpin.imgPath);
-  if (!img || !img.complete || img.naturalWidth === 0) return;
-
-  const p = Math.max(0, Math.min(1, age / SPIN_OUTCOME_MS));
-  const fade = 1 - p;
-
-  const size = from.r.w * 0.82;
-
-  ctx.save();
-  ctx.globalAlpha = 0.85 * fade;
-
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.fillRect(from.r.x, from.r.y, from.r.w, from.r.h);
-
-  ctx.translate(from.x, from.y);
-  ctx.rotate(angle);
-  ctx.rotate(Math.sin((t - lastSpin.t0) * 0.02) * 0.10 * fade);
-
-  ctx.drawImage(img, -size/2, -size/2, size, size);
-  ctx.restore();
 }
 
 /* ===============================
@@ -895,16 +725,11 @@ function beginReturnToHospital(tNow, setRecall) {
   pendingJumpTo = 1;
   inputLocked = true;
 
-  // cancel spinner landing cue when yanked
-  spinnerLanding = null;
-  iconWindowArmed = null;
-  iconWindowRevealed = null;
-
   stringJolt = Math.min(1.2, stringJolt + 0.55);
 }
 
 function hospitalPullMaybe(tNow) {
-  if (revealAll) return false;         // CHEAT: no hospital pull
+  if (revealAll) return false;  // cheat mode: no hospital pull
   if (spinActive) return false;
   if (playerSquare === 1) return false;
   if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
@@ -924,6 +749,7 @@ function canRecall(tNow) {
   if (tNow > recallExpiresAt) return false;
   if (playerSquare !== 1) return false;
   if (inputLocked) return false;
+  if (revealAll) return false; // cheat mode: no recall needed
   return true;
 }
 
@@ -937,9 +763,7 @@ function attemptRecall(tNow) {
   recordMove(target);
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
-  // landing effects
-  maybeArmSubstitutionOnLanding(playerSquare, tNow);
-  armIconWindowOnLanding(playerSquare, tNow);
+  armWindowOnLanding(playerSquare, tNow);
   armSpinnerLanding(playerSquare, tNow);
 }
 
@@ -993,7 +817,7 @@ function drawTetherString(t) {
   const segs = 14;
 
   ctx.save();
-  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0028);
+  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0026);
   ctx.strokeStyle = STRING_COLOR;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -1027,7 +851,7 @@ function drawTetherString(t) {
 
   ctx.fillStyle = STRING_KNOT_COLOR;
   ctx.beginPath();
-  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0065), 0, Math.PI * 2);
+  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0062), 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -1061,13 +885,13 @@ function getHelpLines(tNow) {
       "Home / 1 : return to square 1",
       "M : magnify current square",
       "",
-      "Spinner squares: land → read → snakes appear → next keypress flings you.",
-      "Hospital pull: sometimes snapped back to square 1 (disabled in CHEAT).",
+      "Spinner squares: land → pause → snakes icon appears → next move flings you.",
+      "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
-      "Some squares rewrite themselves after you land on them.",
-      "Type CHEAT : reveal entire board (toggle)",
-      "Esc : close help/magnifier, or return to jumbled board",
+      "Some squares hide their doodle when you land, so the text can be read.",
+      "Type CHEAT : toggle “study mode” (reveals board + disables spinners + disables hospital pull)",
+      "Esc : close help / close magnifier / turn off cheat reveal",
       "",
       "? : toggle this help"
     ]
@@ -1140,23 +964,8 @@ function toggleMagnifier(open = !magnifierOpen) {
   magnifierOpen = !!open;
 }
 
-function getSquareDisplayText(n) {
-  // Popup substitution overrides everything for that square
-  if (activeSubSquare === n && activeSubText) return activeSubText;
-
-  const entry = squareText[String(n)];
-  if (!entry || typeof entry !== "object") return "";
-  return (typeof entry.text === "string") ? entry.text : "";
-}
-
 function drawRichTextBox(text, box, opts = {}) {
-  const {
-    alpha = 1,
-    startFont = 26,
-    minFont = 12,
-    padding = 14
-  } = opts;
-
+  const { alpha = 1, startFont = 26, minFont = 12, padding = 14 } = opts;
   if (!text) return;
 
   ctx.save();
@@ -1168,25 +977,16 @@ function drawRichTextBox(text, box, opts = {}) {
   const maxWidth = box.w - padding * 2;
 
   let chosen = null;
-
   for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
     const lines = layoutRichText(text, maxWidth, fontSize);
     const lineH = Math.round(fontSize * 1.2);
-    const gapH  = Math.round(lineH * 0.55);
+    const gapH  = Math.round(lineH * 0.45);
     const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
-
-    if (blockH <= box.h - padding * 2) {
-      chosen = { fontSize, lines, lineH, gapH };
-      break;
-    }
+    if (blockH <= box.h - padding * 2) { chosen = { fontSize, lines, lineH, gapH }; break; }
   }
-
   if (!chosen) {
     const fontSize = minFont;
-    const lines = layoutRichText(text, maxWidth, fontSize);
-    const lineH = Math.round(fontSize * 1.2);
-    const gapH  = Math.round(lineH * 0.55);
-    chosen = { fontSize, lines, lineH, gapH };
+    chosen = { fontSize, lines: layoutRichText(text, maxWidth, fontSize), lineH: Math.round(fontSize * 1.2), gapH: Math.round(Math.round(fontSize * 1.2) * 0.45) };
   }
 
   const { fontSize, lines, lineH, gapH } = chosen;
@@ -1196,10 +996,8 @@ function drawRichTextBox(text, box, opts = {}) {
   ctx.clip();
 
   let y = box.y + padding;
-
   for (const item of lines) {
     if (item.type === "gap") { y += gapH; continue; }
-
     let x = box.x + padding;
     for (const run of item.runs) {
       setFont(fontSize, run.bold);
@@ -1222,6 +1020,9 @@ function drawMagnifierOverlay(t) {
   const panelW = S - pad * 2;
   const x = pad;
   const y = S - pad - panelH;
+
+  const entry = squareData[String(playerSquare)] || {};
+  const text = (typeof entry.text === "string" ? entry.text : "") || "(no text for this square)";
 
   ctx.save();
 
@@ -1253,7 +1054,7 @@ function drawMagnifierOverlay(t) {
     h: panelH - (10 + headerSize * 1.4) - 24
   };
 
-  drawRichTextBox(getSquareDisplayText(playerSquare) || "(no text for this square)", bodyBox, {
+  drawRichTextBox(text, bodyBox, {
     startFont: Math.max(18, Math.round(S * 0.045)),
     minFont: Math.max(12, Math.round(S * 0.03)),
     padding: 14,
@@ -1271,55 +1072,77 @@ function drawMagnifierOverlay(t) {
 }
 
 /* ===============================
-   MAIN DRAW
+   MAIN DRAW (layered)
+   order per square:
+   1) tile background (from tiles.json)
+   2) icon overlay (transparent SVG) if present AND not suppressed by window reveal
+   3) text (fogged unless visible; hidden for window squares until revealed)
+   special cases:
+   - spinner square after delay: replace tile+icon+text with snakes.svg
 =============================== */
 function draw(t) {
   const S = canvas.clientWidth;
   ctx.clearRect(0, 0, S, S);
 
-  if (board.complete && board.naturalWidth > 0) {
-    ctx.drawImage(board, 0, 0, S, S);
-  }
+  if (board.complete && board.naturalWidth > 0) ctx.drawImage(board, 0, 0, S, S);
 
   const visible = getVisibleSet();
-
-  // Spinner snakes: only for current square (after delay)
-  const spinnerSnakesShowing = spinnerSnakesShowingNow();
+  const defaultTilePath = tileConfig.tiles[tileConfig.defaultTile] || "";
 
   for (let n = 1; n <= 100; n++) {
     const { row, col } = squareToRowCol(n);
     const rect = cellRect(row, col);
+    const isVis = (n === 1) || visible.has(n);
 
-    const isVis = visible.has(n) || n === 1;
+    // --- SPINNER REVEAL: replace the entire square with snakes icon (only on current square, after delay)
+    const spinnerShowing =
+      spinnerLanding &&
+      spinnerLanding.square === n &&
+      spinnerLanding.revealed === true &&
+      playerSquare === n &&
+      !spinActive &&
+      !revealAll;
 
-    const iconPath = getIconForSquare(n);
-    const hasIcon = !!iconPath;
-
-    // Background selection:
-    // 1) If current spinner square has revealed snakes -> snakes tile
-    // 2) Else if icon square and NOT showing text (and not CHEAT reveal) -> icon tile
-    // 3) Else -> normal tiles.json allocation for that square (tileBySquare)
-    if (spinnerSnakesShowing && n === playerSquare) {
-      drawIconTile("assets/icons/snakes.svg", rect);
-    } else if (hasIcon && !isIconWindowShowingText(n) && !revealAll) {
-      drawIconTile(iconPath, rect);
-    } else {
-      drawTile(tileBySquare[n], rect);
+    if (spinnerShowing) {
+      // draw snakes icon full-tile (no pad) so it feels like a “takeover”
+      drawIcon(SPINNER_ICON_PATH, rect, { padFrac: 0.03, alpha: 1 });
+      continue;
     }
 
-    // Determine whether to draw text in this square
-    const text = getSquareDisplayText(n);
+    // --- Background tile always first
+    let bgPath = tileBySquare[n];
 
-    // Spinner rule: on current spinner square, once snakes are showing, hide text (you asked for replace)
-    const blockTextForSpinner = (n === playerSquare && spinnerSnakesShowing);
+    // Cheat option: turn off “image tiles” on window squares (so they revert to default blue)
+    if (revealAll && windowSquares.has(n) && defaultTilePath) bgPath = defaultTilePath;
 
-    // Icon rule: icon squares hide text until they reveal (unless CHEAT)
-    const allowTextForIcon = !hasIcon || isIconWindowShowingText(n);
+    drawTile(bgPath, rect);
 
-    const allowText = !blockTextForSpinner && allowTextForIcon;
+    // --- Icon overlay (transparent)
+    const entry = squareData[String(n)] || {};
+    const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
+
+    const isWindow = windowSquares.has(n);
+
+    // Window behaviour:
+    // - default view: show icon (and hide text)
+    // - when you land + delay: hide icon, show text
+    const windowRevealedNow = isWindowRevealedForSquare(n);
+    const showIcon = !!iconPath && (!isWindow || !windowRevealedNow);
+
+    // Normal (non-window) icon squares just show icon always (under fog)
+    if (showIcon) {
+      const alpha = isVis ? 1 : (0.85 - 0.30 * fogVeilForSquare(n));
+      drawIcon(iconPath, rect, { padFrac: 0.06, alpha: Math.max(0.35, Math.min(1, alpha)) });
+    }
+
+    // --- Text layer
+    const text = (typeof entry.text === "string") ? entry.text : "";
+
+    // Window squares hide their text until revealed (unless cheat reveal is on)
+    const allowText = !isWindow || windowRevealedNow;
 
     if (text && allowText) {
-      if (n === 1 || isVis) {
+      if (isVis) {
         drawRichText(text, rect, 1);
       } else {
         const a = fogAlphaForSquare(n);
@@ -1332,7 +1155,7 @@ function draw(t) {
         ctx.restore();
       }
     } else if (!isVis) {
-      // keep haze feel even if text is hidden
+      // keep a veil on non-visible squares for consistent haze
       ctx.save();
       ctx.globalAlpha = fogVeilForSquare(n);
       ctx.fillStyle = "#fff";
@@ -1340,17 +1163,14 @@ function draw(t) {
       ctx.restore();
     }
 
-    // per-square overlays
-    drawSubstitutionCue(t, rect, n);
+    // Spinner jump animation overlay (during jump only)
     drawSpinnerOverSquare(n, t);
   }
 
-  // Global overlays
   drawTetherString(t);
   drawToken(t);
-  drawSpinnerOutcome(t);
 
-  // Recall hint
+  // Recall hint on square 1
   if (canRecall(t)) {
     const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
     const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
@@ -1368,7 +1188,6 @@ function draw(t) {
 
     ctx.fillStyle = "rgba(255,255,255,0.95)";
     ctx.fillText("↩ R", x, y);
-
     ctx.restore();
   }
 
@@ -1392,9 +1211,8 @@ function draw(t) {
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
-  if (helpOpen) return;
 
-  // If we are on a spinner square and snakes are showing, the NEXT movement key triggers the jump.
+  // If spinner is ready on the current square, the next movement key triggers the jump instead of stepping.
   if (triggerSpinnerJump(tNow)) return;
 
   const next = Math.max(1, Math.min(100, playerSquare + delta));
@@ -1403,18 +1221,17 @@ function attemptStep(delta, tNow) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // landing effects
-  maybeArmSubstitutionOnLanding(playerSquare, tNow);
-  armIconWindowOnLanding(playerSquare, tNow);
+  // Arm behaviours on landing
+  armWindowOnLanding(playerSquare, tNow);
   armSpinnerLanding(playerSquare, tNow);
 
-  // Hospital pull (unless CHEAT)
   hospitalPullMaybe(tNow);
 }
 
 /* ===============================
    INPUT
 =============================== */
+// CHEAT typing: type "CHEAT" quickly (window is max gap between letters)
 let cheatBuffer = "";
 let cheatLastT = 0;
 const CHEAT_TIMEOUT_MS = 700;
@@ -1428,17 +1245,6 @@ function pushCheatChar(ch, tNow) {
   if (cheatBuffer === "cheat") {
     revealAll = !revealAll;
     cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
-
-    // When entering CHEAT, also clear current “triggers” so board is stable
-    if (revealAll) {
-      spinnerLanding = null;
-      iconWindowArmed = null;
-      iconWindowRevealed = null;
-      substitutionArmed = null;
-      activeSubSquare = null;
-      activeSubText = "";
-    }
-
     cheatBuffer = "";
     return true;
   }
@@ -1455,16 +1261,12 @@ document.addEventListener("keydown", (e) => {
   // CHEAT typing has priority (no modifiers)
   if (key.length === 1 && "cheat".includes(key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const toggled = pushCheatChar(key, tNow);
-    if (toggled) {
-      e.preventDefault();
-      return;
-    }
+    if (toggled) { e.preventDefault(); return; }
   }
 
   const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
   const isEsc = (code === "Escape" || key === "escape");
   const isMagnify = (key === "m");
-
   const isRecall = (key === "r");
   const isHome = (code === "Home" || key === "home" || key === "1");
 
@@ -1477,7 +1279,7 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  // If magnifier is open, movement closes it first (then next keypress moves)
+  // If magnifier is open, first close it (movement requires a second keypress)
   const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
   if (magnifierOpen) {
     if (isEsc || isMagnify || isHelp || isMovementKey) {
@@ -1521,13 +1323,12 @@ function tick(t) {
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  updateSubstitution(t);
-  updateIconWindowReveal(t);
+  updateWindowReveal(t);
   updateSpinnerLanding(t);
   updateSpin(t);
-
   draw(t);
-  rafId = requestAnimationFrame(tick);
+
+  requestAnimationFrame(tick);
 }
 
 /* ===============================
@@ -1551,22 +1352,19 @@ async function start() {
       loadText(),
       loadJumps(),
       loadHelpCopy(),
-      loadSpinnerArt(),  // safe if missing
-      loadPopups()
+      loadWindows()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
   }
 
-  // landing effects at start
-  maybeArmSubstitutionOnLanding(playerSquare, performance.now());
-  armIconWindowOnLanding(playerSquare, performance.now());
+  // Arm behaviours on starting square
+  armWindowOnLanding(playerSquare, performance.now());
   armSpinnerLanding(playerSquare, performance.now());
 
   maybeOpenHelpOnFirstVisit();
 
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = requestAnimationFrame(tick);
+  requestAnimationFrame(tick);
 }
 
 board.onload = start;
