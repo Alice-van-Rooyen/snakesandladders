@@ -39,9 +39,7 @@
     "img_pills": "assets/icons/pills.svg",
     "img_shower": "assets/icons/shower.svg",
     "img_snakes": "assets/icons/snakes.svg",
-    "img_speech-grey": "assets/icons/speech-grey.svg",
-    "img_speech-red": "assets/icons/speech-red.svg",
-    "img_speech-purple": "assets/icons/speech-purple.svg",
+    "img_speech": "assets/icons/speech.svg",
     "img_sun": "assets/icons/sun.svg",
     "img_thought": "assets/icons/thought.svg",
     "img_tortoise": "assets/icons/tortoise.svg"
@@ -64,11 +62,7 @@
     "yellow": [2, 11, 27, 46, 51, 63, 71, 81, 92],
     
     "img_cutlery": [22],
-    "img_hospital": [1],
-    "img_speech-purple": [69],
-    "img_speech-grey": [58],
-    "img_speech-red": [95],
-    
+    "img_hospital": [1],  
     "img_sun": [48]
   }
 }
