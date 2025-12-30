@@ -329,15 +329,16 @@ function preloadImages(paths) {
    DRAW: TILE + ICON OVERLAY (transparent SVGs)
 =============================== */
 
-// Global icon sizing knobs
-const ICON_PAD_FRAC = 0.14;        // ↑ increase to make icons smaller inside squares
-const SPINNER_PAD_FRAC = 0.08;     // spinner takeover icon padding (smaller number = bigger icon)
+// Separate knobs so tiles and doodles don’t fight
+let TILE_PAD_FRAC    = 0.06;  // scribble tile inset (leave this alone unless you want the tile smaller)
+let ICON_PAD_FRAC    = 0.18;  // doodle inset (bigger = smaller doodle)
+let SPINNER_PAD_FRAC = 0.08;  // spinner takeover inset (bigger = smaller snakes icon)
 
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  const pad = r.w * 0.06;
+  const pad = r.w * TILE_PAD_FRAC;
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
@@ -353,7 +354,6 @@ function drawIcon(iconPath, r, opts = {}) {
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
   ctx.restore();
 }
-
 
 /* ===============================
    WINDOWS (icon-first, then text reveals on landing)
@@ -1084,8 +1084,8 @@ function drawMagnifierOverlay(t) {
    1) tile background (from tiles.json)
    2) icon overlay (transparent SVG) if present AND not suppressed by window reveal
    3) text (fogged unless visible; hidden for window squares until revealed)
-   special cases:
-   - spinner square after delay: replace tile+icon+text with snakes.svg
+   special case:
+   - spinner square after delay: replace square visuals with snakes.svg
 =============================== */
 function draw(t) {
   const S = canvas.clientWidth;
@@ -1111,10 +1111,9 @@ function draw(t) {
       !revealAll;
 
     if (spinnerShowing) {
-  drawIcon(SPINNER_ICON_PATH, rect, { padFrac: SPINNER_PAD_FRAC, alpha: 1 });
-  continue;
-}
-
+      drawIcon(SPINNER_ICON_PATH, rect, { padFrac: SPINNER_PAD_FRAC, alpha: 1 });
+      continue;
+    }
 
     // --- Background tile always first
     let bgPath = tileBySquare[n];
@@ -1136,16 +1135,14 @@ function draw(t) {
     const windowRevealedNow = isWindowRevealedForSquare(n);
     const showIcon = !!iconPath && (!isWindow || !windowRevealedNow);
 
-    // Normal (non-window) icon squares just show icon always (under fog)
     if (showIcon) {
-      const alpha = isVis ? 1 : (0.85 - 0.30 * fogVeilForSquare(n));
-      drawIcon(iconPath, rect, { padFrac: 0.06, alpha: Math.max(0.35, Math.min(1, alpha)) });
+      // Keep icons visible under fog, but slightly softened
+      const alpha = isVis ? 1 : (0.80 - 0.35 * fogVeilForSquare(n));
+      drawIcon(iconPath, rect, { padFrac: ICON_PAD_FRAC, alpha: Math.max(0.28, Math.min(1, alpha)) });
     }
 
     // --- Text layer
     const text = (typeof entry.text === "string") ? entry.text : "";
-
-    // Window squares hide their text until revealed (unless cheat reveal is on)
     const allowText = !isWindow || windowRevealedNow;
 
     if (text && allowText) {
@@ -1162,7 +1159,7 @@ function draw(t) {
         ctx.restore();
       }
     } else if (!isVis) {
-      // keep a veil on non-visible squares for consistent haze
+      // consistent haze even if text is hidden
       ctx.save();
       ctx.globalAlpha = fogVeilForSquare(n);
       ctx.fillStyle = "#fff";
@@ -1198,7 +1195,6 @@ function draw(t) {
     ctx.restore();
   }
 
-  // Flash feedback on CHEAT toggle
   if (t < cheatFlashUntil) {
     const remaining = cheatFlashUntil - t;
     const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
