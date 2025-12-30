@@ -337,7 +337,7 @@ function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  const pad = r.w * 0.20;
+  const pad = r.w * 0.06;
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
