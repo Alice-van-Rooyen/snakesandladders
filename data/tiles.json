@@ -22,6 +22,7 @@
     "yellow": "assets/tiles/yellow.svg",
     
     "img_apple": "assets/icons/apple.svg",
+    "img_balloons": "assets/icons/balloons.svg",
     "img_bananas": "assets/icons/bananas.svg",
     "img_bin": "assets/icons/bin.svg",
     "img_book": "assets/icons/book.svg", 
@@ -37,6 +38,7 @@
     "img_mug": "assets/icons/mug.svg",
     "img_pills": "assets/icons/pills.svg",
     "img_shower": "assets/icons/shower.svg",
+    "img_snakes": "assets/icons/snakes.svg",
     "img_speech-grey": "assets/icons/speech-grey.svg",
     "img_speech-red": "assets/icons/speech-red.svg",
     "img_speech-purple": "assets/icons/speech-purple.svg",
@@ -62,6 +64,7 @@
     "yellow": [2, 11, 27, 46, 51, 60, 63, 71, 81, 92],
     
     "img_apple": [5],
+    "img_balloons": [100],
     "img_bananas": [35], 
     "img_book": [28],
     "img_bin": [67],
