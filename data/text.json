@@ -1,4 +1,4 @@
-{
+uctanjt{
   "squares": {
   "1":   { "text": "You are discharged. Good luck!", "icon": null},
   "2":   { "text": "Being upright smacks of effort, you opt to be horizontal - a solid first move.", "icon": null},
@@ -67,7 +67,7 @@
   "60":  { "text": "Put clothes in the washing machine. They are now trapped in an infinity wash for 7 - 10 business days.", "icon": null},
 
   "61":  { "text": "Your legs burn like fire ants have taken up residence in your epidermis.", "icon": null},
-  "62":  { "text": "You do 2 minutes on the rowing machine and feel 25 again. You sleep for the rest of the day - in your gym clothes.", "icon": null},
+  "62":  { "text": "Do 2 minutes on the rowing machine and feel 25 again. Sleep for the rest of the day - in your gym clothes.", "icon": null},
   "63":  { "text": "Accept that your usual 6am start time is now 10am.", "icon": "assets/icons/clock.svg"},
   "64":  { "text": "You buy another bottle of Coke you can't open. A random passerby has to do it for you.", "icon": null},
   "65":  { "text": "Check credit card statement - you've spent a month's salary on Just Eat. Feel depressed, order a burger.", "icon": null},
@@ -81,8 +81,8 @@
   "72":  { "text": "You turn on your desk light and feel like you're being interrogated by the Stasi.", "icon": null},
   "73":  { "text": "You try to be helpful. You are not. You have created more work.", "icon": null},
   "74":  { "text": "NHS text reminders drive you bonkers, even though you still need them.", "icon": null},
-  "75":  { "text": "Your irritation at the term 'early convalescence' becomes reluctant acknowledgement that it's 'a thing' and you're doing it.", "icon": null},
-  "76":  { "text": "You mistake a long drive for a low-effort activity. Your small pain will now become BIG PAIN for at least 7 days.", "icon": null},
+  "75":  { "text": "You reluctantly acknowledge that 'early convalescence' is 'a thing' and you're doing it.", "icon": null},
+  "76":  { "text": "You mistake a long drive for a low-effort activity. Expect BIG PAIN for at least 7 days.", "icon": null},
   "77":  { "text": "You try to rate your pain but it involves the Fibonacci sequence.", "icon": null},
   "78":  { "text": "Wear an actual outfit with accessories and perfume - back in your pyjamas by 3pm, but you smell great.", "icon": null},
   "79":  { "text": "Eat an 'extended-family'\n-sized bar of chocolate. You would have preferred vegetables.", "icon": "assets/icons/choc.svg"},
