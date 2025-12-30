@@ -62,7 +62,7 @@
   "55":  { "text": "You forget the real world is not hospital and go to Sainsbury's in your pyjamas.", "icon": null},
   "56":  { "text": "Attend a lecture & walk up 8 flights of stairs in the carpark without the handrail. You little champion!", "icon": null},
   "57":  { "text": "Used up a week's energy posing at a lecture & parking on the 8th floor. Hubris, pure hubris.", "icon": null},
-  "58":  { "text": "'We forgot to mention'", "icon": null},
+  "58":  { "text": "'We forgot to mention'", "icon": "assets/icons/speech.svg"},
   "59":  { "text": "Sleep. Wake. Snack. Sleep. It is what it is - this is what they mean by Zen.", "icon": null},
   "60":  { "text": "Put clothes in the washing machine. They are now trapped in an infinity wash for 7 - 10 business days.", "icon": null},
 
@@ -74,7 +74,7 @@
   "66":  { "text": "You are dizzy standing up. You sit down. You are dizzy sitting down. You go to bed.", "icon": null},
   "67":  { "text": "More groceries? You indefatigable optimist! You put another bin liner in, because ... well ...", "icon": "assets/icons/bin.svg"},
   "68":  { "text": "Spend 5 hours on the sofa listening to your tinnitus with a cup of tea.", "icon": null},
-  "69":  { "text": "'You deserve a nap'", "icon": null},
+  "69":  { "text": "'You deserve a nap'", "icon": "assets/icons/speech.svg"},
   "70":  { "text": "You tell your 100th person 'I'm not very good at stairs at the moment'.", "icon": null},
 
   "71":  { "text": "Too tired to shower. Too filthy not to.", "icon": "assets/icons/shower.svg"},
@@ -103,7 +103,7 @@
   "92":  { "text": "You can sign your own name again, but the electrical storm in your hand is ongoing.", "icon": null},
   "93":  { "text": "Build another hair hamster, and check for bald spots.", "icon": null},
   "94":  { "text": "Your new love of steak bakes is a culinary violation of everything you stand for - you eat another one anyway.", "icon": "assets/icons/greggs.svg"},
-  "95":  { "text": "'That's perfectly normal'", "icon": null},
+  "95":  { "text": "'That's perfectly normal'", "icon": "assets/icons/speech.svg"},
   "96":  { "text": "You have a day with no pain. You think you are cured - you are not.", "icon": null },
   "97":  { "text": "You play the 'I nearly died' card during a vicious round of Uno, your brother plays the +5 card.", "icon": null },
   "98":  { "text": "An acquaintance wants to visit. It's easier to unfriend them than tidy the house.", "icon": null},
