@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>an apple a day</title>
+  <title>all good in the hood</title>
 
   <style>
     body {
@@ -56,6 +56,7 @@ let revealAll = false;
 // Extra CHEAT behaviours (bundle)
 let cheatHideWindowArt = false;    // window squares render as default tile
 let cheatDisableSpinners = false;  // spinner squares behave like normal squares
+let cheatDisableHospitalPull = false;
 
 // Flash feedback when cheat toggles
 let cheatFlashUntil = 0;
@@ -1052,6 +1053,7 @@ function beginReturnToHospital(tNow, setRecall) {
 }
 
 function hospitalPullMaybe(tNow) {
+  if (cheatDisableHospitalPull) return false; // NEW
   if (spinActive) return false;
   if (playerSquare === 1) return false;
   if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
@@ -1428,12 +1430,14 @@ function setCheatMode(on) {
   // Bundle behaviours
   cheatHideWindowArt = !!on;
   cheatDisableSpinners = !!on;
+  cheatDisableHospitalPull = !!on; // NEW
 
   // Clear any in-progress spinner reveal if we’re disabling spinners
   if (cheatDisableSpinners) spinnerLanding = null;
 
   cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
 }
+
 
 function pushCheatChar(ch, tNow) {
   if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
