@@ -65,6 +65,10 @@
     
     "img_cutlery": [22],
     "img_hospital": [1],
+    "img_speech-purple": [69],
+    "img_speech-grey": [36],
+    "img_speech-red": [95],
+    
     "img_sun": [48]
   }
 }
