@@ -21,28 +21,9 @@
     "terracotta":   "assets/tiles/terracotta.svg",
     "yellow": "assets/tiles/yellow.svg",
     
-    "img_apple": "assets/icons/apple.svg",
-    "img_balloons": "assets/icons/balloons.svg",
-    "img_bananas": "assets/icons/bananas.svg",
-    "img_bin": "assets/icons/bin.svg",
-    "img_book": "assets/icons/book.svg", 
-    "img_choc": "assets/icons/choc.svg",
-    "img_clock": "assets/icons/clock.svg",
     "img_cutlery": "assets/icons/cutlery.svg",
-    "img_deliveroo": "assets/icons/deliveroo.svg",
-    "img_greggs": "assets/icons/greggs.svg",
-    "img_heart": "assets/icons/heart.svg",
     "img_hospital": "assets/icons/hospital.svg",
-    "img_mail": "assets/icons/mail.svg",
-    "img_mickey": "assets/icons/mickey.svg",
-    "img_mug": "assets/icons/mug.svg",
-    "img_pills": "assets/icons/pills.svg",
-    "img_shower": "assets/icons/shower.svg",
-    "img_snakes": "assets/icons/snakes.svg",
-    "img_speech": "assets/icons/speech.svg",
-    "img_sun": "assets/icons/sun.svg",
-    "img_thought": "assets/icons/thought.svg",
-    "img_tortoise": "assets/icons/tortoise.svg"
+    "img_sun": "assets/icons/sun.svg"
   },
   
   "tileSets": {
