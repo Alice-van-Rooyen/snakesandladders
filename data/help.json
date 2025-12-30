@@ -5,13 +5,16 @@
     "← / ↓  : back 1 square",
     "Space  : forward 1 square",
     "",
-    "⟳ Spinner squares: outcome is random.",
-    "Hospital pull: sometimes you are snapped back to square 1.",
-    "Home / 1 : return to square 1",
-    "Recall: press R within a few seconds to return.",
+    "Snakes & Ladder squares: hidden until you land on them, outcome is uncertain.",
+    "Hospital pull: sometimes you are snapped back to the hospital square for a clinic visit.",
+    "Recall: if you have to visit the hospital, press R within a few seconds to return to your most recent square.",
     "",
-    "? : toggle this help",
-    "Esc   : close help"
+    "Home / 1 : return to square 1",
+    "",
+    "Helpful keys:",
+    "?  : opens this help window",
+    "Esc   : closes this help window",
+    "M   :  opens a window with the current square's text enlarged"
   ]
 }
 
