@@ -21,9 +21,9 @@
     "terracotta":   "assets/tiles/terracotta.svg",
     "yellow": "assets/tiles/yellow.svg",
     
-    "img_cutlery": "assets/icons/cutlery.svg",
-    "img_hospital": "assets/icons/hospital.svg",
-    "img_sun": "assets/icons/sun.svg"
+    "img_cutlery": "assets/tiles/cutlery.svg",
+    "img_hospital": "assets/tiles/hospital.svg",
+    "img_sun": "assets/tiles/sun.svg"
   },
   
   "tileSets": {
