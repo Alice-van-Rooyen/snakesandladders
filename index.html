@@ -328,6 +328,11 @@ function preloadImages(paths) {
 /* ===============================
    DRAW: TILE + ICON OVERLAY (transparent SVGs)
 =============================== */
+
+// Global icon sizing knobs
+const ICON_PAD_FRAC = 0.14;        // ↑ increase to make icons smaller inside squares
+const SPINNER_PAD_FRAC = 0.08;     // spinner takeover icon padding (smaller number = bigger icon)
+
 function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
@@ -340,13 +345,15 @@ function drawIcon(iconPath, r, opts = {}) {
   const img = getImage(iconPath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  // Full-ish coverage so it reads as “tile art”
-  const pad = (opts.padFrac ?? 0.06) * r.w;
+  const padFrac = (opts.padFrac ?? ICON_PAD_FRAC);
+  const pad = padFrac * r.w;
+
   ctx.save();
   ctx.globalAlpha = (opts.alpha ?? 1);
   ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
   ctx.restore();
 }
+
 
 /* ===============================
    WINDOWS (icon-first, then text reveals on landing)
@@ -1104,10 +1111,10 @@ function draw(t) {
       !revealAll;
 
     if (spinnerShowing) {
-      // draw snakes icon full-tile (no pad) so it feels like a “takeover”
-      drawIcon(SPINNER_ICON_PATH, rect, { padFrac: 0.03, alpha: 1 });
-      continue;
-    }
+  drawIcon(SPINNER_ICON_PATH, rect, { padFrac: SPINNER_PAD_FRAC, alpha: 1 });
+  continue;
+}
+
 
     // --- Background tile always first
     let bgPath = tileBySquare[n];
