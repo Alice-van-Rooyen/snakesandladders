@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>18 apples a day</title>
+  <title>an apple a day</title>
 
   <style>
     body {
@@ -53,6 +53,10 @@ let visited = [1];
 // Cheat reveal (typing "CHEAT")
 let revealAll = false;
 
+// Extra CHEAT behaviours (bundle)
+let cheatHideWindowArt = false;    // window squares render as default tile
+let cheatDisableSpinners = false;  // spinner squares behave like normal squares
+
 // Flash feedback when cheat toggles
 let cheatFlashUntil = 0;
 const CHEAT_FLASH_MS = 260;
@@ -61,6 +65,7 @@ const CHEAT_FLASH_MS = 260;
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
 let squareText = {};                                               // data/text.json
 let tileBySquare = {};
+let defaultTilePath = "";                                          // resolved in loadTiles()
 
 // Spinners (mechanics)
 let spinnerMap = {};          // { from: [to,to,...] }
@@ -92,10 +97,9 @@ let spinStartT = 0;
 let spinDurationMs = 700;
 let pendingJumpTo = null;
 
-// Spinner landing reveal (like square substitution, but for spinner mechanics)
-const SPINNER_REVEAL_MS = 260;     // delay after landing before spinner doodle appears
+// Spinner landing reveal (land → read → doodle appears → next keypress flings you)
+const SPINNER_REVEAL_MS = 260;
 let spinnerLanding = null;         // { square:number, revealAt:number, revealed:boolean }
-
 
 // Hospital pull + recall
 const HOSPITAL_PULL_CHANCE = 0.03;
@@ -108,7 +112,7 @@ let helpOpen = false;
 const HELP_SEEN_KEY = "snakes_help_seen_v1";
 let helpCopy = null; // data/help.json
 
-// Magnifier overlay (NEW)
+// Magnifier overlay
 let magnifierOpen = false;
 
 // Tether dynamics
@@ -135,12 +139,12 @@ function getImage(path) {
   return img;
 }
 
-  // --- WINDOW DOODLE SQUARES (art when not there, text when there) ---
+// --- WINDOW DOODLE SQUARES (art when not there, text when there) ---
 let windowSquares = new Set();      // squares that hide text unless you're on them
 let windowPlainTilePath = "";       // resolved from tiles.json
 const WINDOW_DELAY_MS = 240;        // delay after landing before swapping to plain+text
 let windowArmed = null;             // { square:number, revealAt:number }
-let windowRevealed = null;          // number | null (currently revealed window square)
+let windowRevealed = null;          // number | null
 
 /* ===============================
    RESIZE
@@ -148,28 +152,18 @@ let windowRevealed = null;          // number | null (currently revealed window 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
 
-  // CSS size (can be odd like 823)
   const css = canvas.clientWidth;
-
-  // Quantize to a multiple of 10 CSS pixels so each cell is integer px
-  // (and your padding math lands on cleaner numbers too)
   const snappedCss = Math.max(200, Math.round(css / 10) * 10);
 
-  // Make the DOM element match the snapped size so layout and math agree
   canvas.style.width = snappedCss + "px";
   canvas.style.height = snappedCss + "px";
 
-  // Actual render buffer (device pixels)
   canvas.width = Math.round(snappedCss * dpr);
   canvas.height = Math.round(snappedCss * dpr);
 
-  // Draw using CSS pixel units
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  // Keep this off for handmade line quality (prevents blur)
   ctx.imageSmoothingEnabled = false;
 }
-
 
 /* ===============================
    GRID MATH
@@ -186,13 +180,10 @@ function squareToRowCol(n) {
 }
 
 function cellRect(row, col) {
-  const S = canvas.clientWidth;    // now snapped to multiple of 10
-  const cell = (S / 10) | 0;       // integer (82)
-  const x = col * cell;
-  const y = row * cell;
-  return { x, y, w: cell, h: cell };
+  const S = canvas.clientWidth;    // snapped
+  const cell = (S / 10) | 0;       // integer
+  return { x: col * cell, y: row * cell, w: cell, h: cell };
 }
-
 
 function squareCornerAnchor(n, corner, padFrac) {
   const { row, col } = squareToRowCol(n);
@@ -222,10 +213,10 @@ async function loadTiles() {
     tileSets: data.tileSets || {}
   };
 
-  const defaultPath = tileConfig.tiles[tileConfig.defaultTile];
+  defaultTilePath = tileConfig.tiles[tileConfig.defaultTile] || "";
 
   tileBySquare = {};
-  for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
+  for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultTilePath;
 
   for (const colourName of Object.keys(tileConfig.tileSets)) {
     const path = tileConfig.tiles[colourName];
@@ -239,9 +230,6 @@ async function loadTiles() {
 }
 
 async function loadText() {
-  // Accept either:
-  // 1) flat map: { "1":"...", "2":"..." }
-  // 2) nested legacy: { "squares": { "1": { "text":"..." }, ... } }
   const res = await fetch("data/text.json?v=" + Date.now());
   const data = await res.json();
 
@@ -283,7 +271,6 @@ async function loadJumps() {
       }
     }
 
-    // Back-compat: { "jumps": { "4": 14 } }
     if (data.jumps && typeof data.jumps === "object") {
       for (const [k, v] of Object.entries(data.jumps)) {
         const from = Number(k);
@@ -315,7 +302,7 @@ async function loadHelpCopy() {
 }
 
 async function loadSpinnerArt() {
-  // Optional: data/spinner_art.json
+  // Optional: data/spinner_art.json (safe if missing)
   try {
     const res = await fetch("data/spinner_art.json?v=" + Date.now());
     if (!res.ok) throw new Error("spinner_art.json not ok");
@@ -330,8 +317,6 @@ async function loadSpinnerArt() {
 }
 
 async function loadPopups() {
-  // Optional: data/popups.json
-  // Format: { "36": { "popup": "..." }, ... }
   try {
     const res = await fetch("data/popups.json?v=" + Date.now());
     if (!res.ok) throw new Error("popups.json not ok");
@@ -342,20 +327,8 @@ async function loadPopups() {
   }
 }
 
-function preloadImages(paths) {
-  const promises = paths.map(p => new Promise(resolve => {
-    const img = getImage(p);
-    if (!img) return resolve();
-    if (img.complete && img.naturalWidth > 0) return resolve();
-    img.onload = () => resolve();
-    img.onerror = () => resolve();
-  }));
-  return Promise.all(promises);
-}
-
-  async function loadWindows() {
+async function loadWindows() {
   // Optional: data/windows.json
-  // Format: { "defaultPlainTile": "blue", "windows": [4,12,36] }
   try {
     const res = await fetch("data/windows.json?v=" + Date.now());
     if (!res.ok) throw new Error("windows.json not ok");
@@ -370,13 +343,24 @@ function preloadImages(paths) {
       ? data.defaultPlainTile
       : (tileConfig.defaultTile || "blue");
 
-    windowPlainTilePath = tileConfig.tiles[plainName] || tileConfig.tiles[tileConfig.defaultTile] || "";
+    windowPlainTilePath = tileConfig.tiles[plainName] || tileConfig.tiles[tileConfig.defaultTile] || defaultTilePath;
   } catch {
     windowSquares = new Set();
-    windowPlainTilePath = tileConfig.tiles[tileConfig.defaultTile] || "";
+    windowPlainTilePath = tileConfig.tiles[tileConfig.defaultTile] || defaultTilePath;
   }
 }
-  
+
+function preloadImages(paths) {
+  const promises = paths.map(p => new Promise(resolve => {
+    const img = getImage(p);
+    if (!img) return resolve();
+    if (img.complete && img.naturalWidth > 0) return resolve();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+  }));
+  return Promise.all(promises);
+}
+
 /* ===============================
    TILE
 =============================== */
@@ -384,44 +368,33 @@ function drawTile(tilePath, r) {
   const img = getImage(tilePath);
   if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  // Integer padding so we never draw on half pixels
   const pad = Math.max(0, Math.round(r.w * 0.06));
+  const x = (r.x + pad) | 0;
+  const y = (r.y + pad) | 0;
+  const w = (r.w - 2 * pad) | 0;
+  const h = (r.h - 2 * pad) | 0;
 
-  const x = r.x + pad;
-  const y = r.y + pad;
-  const w = r.w - 2 * pad;
-  const h = r.h - 2 * pad;
-
-  // Integer destination rect
-  ctx.drawImage(img, x | 0, y | 0, w | 0, h | 0);
+  ctx.drawImage(img, x, y, w, h);
 }
 
 /* ===============================
    WINDOWS REVEAL
 =============================== */
-
 function clearWindowIfMoved() {
-  if (windowRevealed !== null && playerSquare !== windowRevealed) {
-    windowRevealed = null;
-  }
-  if (windowArmed && playerSquare !== windowArmed.square) {
-    windowArmed = null;
-  }
+  if (windowRevealed !== null && playerSquare !== windowRevealed) windowRevealed = null;
+  if (windowArmed && playerSquare !== windowArmed.square) windowArmed = null;
 }
 
 function armWindowOnLanding(square, tNow) {
   if (!windowSquares.has(square)) return;
 
-  // If already revealed/armed for this square, do nothing
-  if (windowRevealed === square) return;
-  if (windowArmed && windowArmed.square === square) return;
-
+  // (re)arm every time you land
+  windowRevealed = null;
   windowArmed = { square, revealAt: tNow + WINDOW_DELAY_MS };
 }
 
 function updateWindowReveal(t) {
   clearWindowIfMoved();
-
   if (!windowArmed) return;
   if (playerSquare !== windowArmed.square) { windowArmed = null; return; }
 
@@ -432,18 +405,13 @@ function updateWindowReveal(t) {
 }
 
 function isWindowShowingText(square) {
-  // When cheat reveal is on, show text everywhere (including window squares)
   if (revealAll) return true;
-
-  // Otherwise, only show text when the window has revealed on your current square
   return windowRevealed === square && playerSquare === square;
 }
 
 /* ===============================
    TEXT: fog + markdown-lite bold (**bold**)
 =============================== */
-
-// Deterministic scramble per square
 function scrambleText(text, seed) {
   let s = seed * 99991;
   const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -476,8 +444,6 @@ function fogVeilForSquare(n) {
 }
 
 function parseBoldRuns(str) {
-  // Markdown-lite: **bold**
-  // Returns [{text, bold}, ...]
   const runs = [];
   let i = 0;
   let bold = false;
@@ -494,7 +460,6 @@ function parseBoldRuns(str) {
     bold = !bold;
     i = j + 2;
   }
-
   return runs;
 }
 
@@ -538,16 +503,13 @@ function layoutRichText(text, maxWidth, fontSizePx) {
 
     for (const tok of tokens) {
       const w = measureRunText(fontSizePx, tok.bold, tok.text);
-
       if (current.length === 0 && tok.isSpace) continue;
 
       if (currentW + w > maxWidth && current.length > 0) {
         while (current.length && current[current.length - 1].isSpace) current.pop();
         lines.push({ type: "line", runs: current });
-
         current = [];
         currentW = 0;
-
         if (tok.isSpace) continue;
       }
 
@@ -562,7 +524,6 @@ function layoutRichText(text, maxWidth, fontSizePx) {
   }
 
   while (lines.length && lines[lines.length - 1].type === "gap") lines.pop();
-
   return lines;
 }
 
@@ -594,9 +555,7 @@ function drawRichText(text, r, alpha = 1) {
         if (item.type === "gap") { y += gapH; continue; }
 
         let lineW = 0;
-        for (const run of item.runs) {
-          lineW += measureRunText(fontSize, run.bold, run.text);
-        }
+        for (const run of item.runs) lineW += measureRunText(fontSize, run.bold, run.text);
 
         let x = cx - lineW / 2;
 
@@ -605,7 +564,6 @@ function drawRichText(text, r, alpha = 1) {
           ctx.fillText(run.text, x, y);
           x += ctx.measureText(run.text).width;
         }
-
         y += lineH;
       }
 
@@ -620,26 +578,17 @@ function drawRichText(text, r, alpha = 1) {
 }
 
 /* ===============================
-   MAGNIFIER (NEW)
+   MAGNIFIER
 =============================== */
 function toggleMagnifier(open = !magnifierOpen) {
   magnifierOpen = !!open;
 }
-
 function getMagnifierText() {
-  // Always show the real, legible text for the square you’re standing on.
   const t = getSquareDisplayText(playerSquare);
   return t || "(no text for this square)";
 }
-
 function drawRichTextBox(text, box, opts = {}) {
-  const {
-    alpha = 1,
-    startFont = 26,
-    minFont = 12,
-    padding = 14
-  } = opts;
-
+  const { alpha = 1, startFont = 26, minFont = 12, padding = 14 } = opts;
   if (!text) return;
 
   ctx.save();
@@ -649,7 +598,6 @@ function drawRichTextBox(text, box, opts = {}) {
   ctx.textBaseline = "top";
 
   const maxWidth = box.w - padding * 2;
-
   let chosen = null;
 
   for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
@@ -657,11 +605,7 @@ function drawRichTextBox(text, box, opts = {}) {
     const lineH = Math.round(fontSize * 1.2);
     const gapH  = Math.round(lineH * 0.55);
     const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
-
-    if (blockH <= box.h - padding * 2) {
-      chosen = { fontSize, lines, lineH, gapH, blockH };
-      break;
-    }
+    if (blockH <= box.h - padding * 2) { chosen = { fontSize, lines, lineH, gapH }; break; }
   }
 
   if (!chosen) {
@@ -669,25 +613,20 @@ function drawRichTextBox(text, box, opts = {}) {
     const lines = layoutRichText(text, maxWidth, fontSize);
     const lineH = Math.round(fontSize * 1.2);
     const gapH  = Math.round(lineH * 0.55);
-    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
-    chosen = { fontSize, lines, lineH, gapH, blockH };
+    chosen = { fontSize, lines, lineH, gapH };
   }
 
-  const { fontSize, lines, lineH, gapH, blockH } = chosen;
+  const { fontSize, lines, lineH, gapH } = chosen;
 
-  // Clip to the box so overflow doesn’t spill
   ctx.beginPath();
   ctx.rect(box.x + padding, box.y + padding, box.w - 2 * padding, box.h - 2 * padding);
   ctx.clip();
 
-  // Top aligned (feels like a note)
   let y = box.y + padding;
 
   for (const item of lines) {
     if (item.type === "gap") { y += gapH; continue; }
-
     let x = box.x + padding;
-
     for (const run of item.runs) {
       setFont(fontSize, run.bold);
       ctx.fillText(run.text, x, y);
@@ -699,13 +638,12 @@ function drawRichTextBox(text, box, opts = {}) {
   ctx.restore();
 }
 
-function drawMagnifierOverlay(t) {
+function drawMagnifierOverlay() {
   if (!magnifierOpen) return;
 
   const S = canvas.clientWidth;
   const pad = Math.max(14, S * 0.05);
 
-  // Panel near the bottom (stays out of your token/string drama)
   const panelH = Math.max(140, S * 0.34);
   const panelW = S - pad * 2;
   const x = pad;
@@ -713,12 +651,10 @@ function drawMagnifierOverlay(t) {
 
   ctx.save();
 
-  // Dim background slightly
   ctx.globalAlpha = 0.42;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, S, S);
 
-  // Panel
   ctx.globalAlpha = 0.96;
   ctx.fillStyle = "#fff";
   ctx.fillRect(x, y, panelW, panelH);
@@ -728,7 +664,6 @@ function drawMagnifierOverlay(t) {
   ctx.lineWidth = Math.max(2, S * 0.006);
   ctx.strokeRect(x, y, panelW, panelH);
 
-  // Header
   const headerSize = Math.max(12, Math.round(S * 0.022));
   ctx.globalAlpha = 0.7;
   ctx.fillStyle = "rgba(0,0,0,0.75)";
@@ -737,7 +672,6 @@ function drawMagnifierOverlay(t) {
   ctx.textBaseline = "top";
   ctx.fillText(`Square ${playerSquare}`, x + 14, y + 10);
 
-  // Body box under header
   const bodyBox = {
     x: x + 10,
     y: y + 10 + headerSize * 1.4,
@@ -752,7 +686,6 @@ function drawMagnifierOverlay(t) {
     alpha: 1
   });
 
-  // Tiny hint
   ctx.globalAlpha = 0.6;
   ctx.fillStyle = "rgba(0,0,0,0.7)";
   ctx.font = `600 ${headerSize}px system-ui`;
@@ -774,7 +707,6 @@ function recordMove(toSquare) {
     playerSquare += step;
     visited.push(playerSquare);
   }
-
   if (visited.length > 500) visited = visited.slice(-250);
 }
 
@@ -786,7 +718,7 @@ function getVisibleSet() {
   }
 
   const vis = new Set();
-  vis.add(1); // hospital always legible
+  vis.add(1);
   vis.add(playerSquare);
 
   for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
@@ -798,8 +730,7 @@ function getVisibleSet() {
 }
 
 /* ===============================
-   SQUARE SUBSTITUTION (replaces square text after landing delay)
-   + tiny in-cell visual cue on activation
+   SUBSTITUTION (text rewrite squares)
 =============================== */
 function getSubTextForSquare(n) {
   const entry = popupMap[String(n)];
@@ -809,8 +740,8 @@ function getSubTextForSquare(n) {
   return txt;
 }
 
-let subCue = null;              // { square: number, t0: number }
-const SUB_CUE_MS = 260;         // duration of the in-cell cue
+let subCue = null;
+const SUB_CUE_MS = 260;
 
 function clearActiveSubstitutionIfMoved() {
   if (activeSubSquare !== null && playerSquare !== activeSubSquare) {
@@ -820,41 +751,29 @@ function clearActiveSubstitutionIfMoved() {
 }
 
 function maybeArmSubstitutionOnLanding(n, tNow) {
-  // Must have substitution text
   const txt = getSubTextForSquare(n);
   if (!txt) return;
-
-  // Already armed for this square
   if (substitutionArmed && substitutionArmed.square === n) return;
-
-  // Arm a delayed substitution every time you land
   substitutionArmed = { square: n, showAt: tNow + SUB_DELAY_MS };
 }
 
 function updateSubstitution(t) {
   clearActiveSubstitutionIfMoved();
-
   if (!substitutionArmed) return;
 
-  // If moved away before it triggers, cancel
   if (playerSquare !== substitutionArmed.square) {
     substitutionArmed = null;
     return;
   }
 
-  // Trigger
   if (t >= substitutionArmed.showAt) {
     const sq = substitutionArmed.square;
     const txt = getSubTextForSquare(sq);
-
     if (txt) {
       activeSubSquare = sq;
       activeSubText = txt;
-
-      // Tiny in-cell cue
       subCue = { square: sq, t0: t };
     }
-
     substitutionArmed = null;
   }
 }
@@ -868,7 +787,6 @@ function drawSubstitutionCue(t, rect, n) {
   const p = Math.max(0, Math.min(1, age / SUB_CUE_MS));
   const fade = 1 - p;
 
-  // A quick "wipe" that shrinks + fades, plus a subtle border pulse
   const inset = rect.w * (0.06 + 0.08 * p);
   const x = rect.x + inset;
   const y = rect.y + inset;
@@ -876,24 +794,19 @@ function drawSubstitutionCue(t, rect, n) {
   const h = rect.h - inset * 2;
 
   ctx.save();
-
-  // Soft white wipe
   ctx.globalAlpha = 0.35 * fade;
   ctx.fillStyle = "#fff";
   ctx.fillRect(x, y, w, h);
 
-  // Border pulse
   ctx.globalAlpha = 0.55 * fade;
   ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.lineWidth = Math.max(2, rect.w * 0.05 * fade);
   ctx.strokeRect(x, y, w, h);
-
   ctx.restore();
 }
 
-
 /* ===============================
-   SPINNERS
+   SPINNERS (land → reveal doodle → move key triggers jump)
 =============================== */
 function isSpinnerSquare(n) { return spinnerSquares.has(n); }
 
@@ -914,36 +827,73 @@ function chooseSpinnerDestination(fromSquare) {
   return options[randInt(options.length)];
 }
 
+function armSpinnerLanding(square, tNow) {
+  if (cheatDisableSpinners) return;
+  if (!spinnerSquares.has(square)) return;
+  if (spinActive) return;
+
+  spinnerLanding = { square, revealAt: tNow + SPINNER_REVEAL_MS, revealed: false };
+}
+
+function updateSpinnerLanding(t) {
+  if (!spinnerLanding) return;
+  if (playerSquare !== spinnerLanding.square) { spinnerLanding = null; return; }
+  if (!spinnerLanding.revealed && t >= spinnerLanding.revealAt) spinnerLanding.revealed = true;
+}
+
+function spinnerReadyOnCurrentSquare() {
+  return (
+    !cheatDisableSpinners &&
+    spinnerLanding &&
+    spinnerLanding.square === playerSquare &&
+    spinnerLanding.revealed === true &&
+    !spinActive
+  );
+}
+
+function triggerSpinnerJump(tNow) {
+  if (!spinnerReadyOnCurrentSquare()) return false;
+
+  const from = playerSquare;
+  const to = chooseSpinnerDestination(from);
+  if (!to || to === from) { spinnerLanding = null; return false; }
+
+  spinActive = true;
+  spinSquare = from;
+  spinStartT = tNow;
+  pendingJumpTo = to;
+  inputLocked = true;
+
+  spinnerLanding = null;
+  return true;
+}
+
+// Spinner doodle (only on current square after reveal)
 function drawSpinnerPin(n, rect, visible) {
-  // Only show the spinner doodle on the CURRENT square,
-  // only after the reveal delay, and only when the square is visible.
+  if (cheatDisableSpinners) return;
   if (!visible) return;
   if (!spinnerLanding) return;
   if (spinnerLanding.square !== n) return;
   if (!spinnerLanding.revealed) return;
   if (spinActive && spinSquare === n) return;
 
-  // Draw a "doodle" mark (snake+ladder icon) centered and larger,
-  // but translucent so it doesn't murder your text.
   const size = rect.w * 0.62;
   const x = rect.x + (rect.w - size) / 2;
   const y = rect.y + (rect.h - size) / 2;
 
   ctx.save();
 
-  // Soft white wash to separate from busy tiles (very subtle)
   ctx.globalAlpha = 0.18;
   ctx.fillStyle = "#fff";
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-  // Icon strokes
   ctx.globalAlpha = 0.55;
   ctx.strokeStyle = "rgba(0,0,0,0.85)";
   ctx.lineWidth = Math.max(2, rect.w * 0.02);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // Ladder-ish: rails + rungs on left half
+  // ladder-ish
   const lx1 = x + size * 0.18;
   const lx2 = x + size * 0.42;
   const ly1 = y + size * 0.16;
@@ -962,7 +912,7 @@ function drawSpinnerPin(n, rect, visible) {
     ctx.stroke();
   }
 
-  // Snake-ish squiggle on right half
+  // snake-ish
   const sx = x + size * 0.58;
   const sy = y + size * 0.18;
   const sw = size * 0.26;
@@ -982,7 +932,6 @@ function drawSpinnerPin(n, rect, visible) {
   );
   ctx.stroke();
 
-  // Head dot
   ctx.fillStyle = "rgba(0,0,0,0.85)";
   ctx.beginPath();
   ctx.arc(sx + sw * 0.1, sy + sh * 0.08, Math.max(2, rect.w * 0.016), 0, Math.PI * 2);
@@ -991,6 +940,63 @@ function drawSpinnerPin(n, rect, visible) {
   ctx.restore();
 }
 
+function drawSpinnerOverSquare(n, t) {
+  if (!spinActive || spinSquare !== n) return;
+
+  const { x, y, r } = squareCenter(n);
+  const radius = r.w * 0.22;
+
+  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+  const rot = (t - spinStartT) * 0.018;
+
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  ctx.lineWidth = Math.max(2, r.w * 0.05);
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineCap = "round";
+
+  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, arcSpan);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function updateSpin(t) {
+  if (!spinActive) return;
+
+  const elapsed = t - spinStartT;
+  if (elapsed < spinDurationMs) return;
+
+  spinActive = false;
+  const to = pendingJumpTo;
+  pendingJumpTo = null;
+
+  const fromSquare = spinSquare;
+
+  recordMove(to);
+  stringJolt = Math.min(1.2, stringJolt + 0.45);
+
+  const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
+  const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
+  if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
+  else lastSpin = null;
+
+  inputLocked = false;
+
+  maybeArmSubstitutionOnLanding(playerSquare, t);
+  armWindowOnLanding(playerSquare, t);
+  armSpinnerLanding(playerSquare, t);
+}
 
 function drawSpinnerOutcome(t) {
   if (!lastSpin) return;
@@ -1027,72 +1033,6 @@ function drawSpinnerOutcome(t) {
   ctx.restore();
 }
 
-/* ===============================
-   SPINNER LANDING REVEAL (NEW)
-   Land → read → doodle appears → next keypress flings you
-=============================== */
-function armSpinnerLanding(square, tNow) {
-  // Only arm if the square is a spinner square and we're not already mid-spin
-  if (!spinnerSquares.has(square)) return;
-  if (spinActive) return;
-
-  spinnerLanding = {
-    square,
-    revealAt: tNow + SPINNER_REVEAL_MS,
-    revealed: false
-  };
-}
-
-function updateSpinnerLanding(t) {
-  if (!spinnerLanding) return;
-
-  // If we've moved away, cancel
-  if (playerSquare !== spinnerLanding.square) {
-    spinnerLanding = null;
-    return;
-  }
-
-  // Reveal after delay
-  if (!spinnerLanding.revealed && t >= spinnerLanding.revealAt) {
-    spinnerLanding.revealed = true;
-  }
-}
-
-function spinnerReadyOnCurrentSquare() {
-  return (
-    spinnerLanding &&
-    spinnerLanding.square === playerSquare &&
-    spinnerLanding.revealed === true &&
-    !spinActive
-  );
-}
-
-function triggerSpinnerJump(tNow) {
-  if (!spinnerReadyOnCurrentSquare()) return false;
-
-  const from = playerSquare;
-  const to = chooseSpinnerDestination(from);
-  if (!to || to === from) {
-    // If no valid destination, just clear and allow normal movement
-    spinnerLanding = null;
-    return false;
-  }
-
-  // Start the existing spin animation, but ONLY when user tries to move
-  spinActive = true;
-  spinSquare = from;
-  spinStartT = tNow;
-  pendingJumpTo = to;
-  inputLocked = true;
-
-  // Clear landing state so it doesn't re-trigger
-  spinnerLanding = null;
-
-  return true;
-}
-
-
-  
 /* ===============================
    HOSPITAL PULL + RECALL + HOME
 =============================== */
@@ -1144,76 +1084,9 @@ function attemptRecall(tNow) {
   recordMove(target);
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
-  startSpinIfNeeded(playerSquare);
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
-}
-
-/* ===============================
-   SPIN LOGIC
-=============================== */
-function startSpinIfNeeded(fromSquare) {
-  // Spinner behaviour is now: land → reveal → next keypress triggers spin.
-  // So this function is intentionally disabled.
-  return false;
-}
-
-function drawSpinnerOverSquare(n, t) {
-  if (!spinActive || spinSquare !== n) return;
-
-  const { x, y, r } = squareCenter(n);
-  const radius = r.w * 0.22;
-
-  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
-  const rot = (t - spinStartT) * 0.018;
-
-  ctx.save();
-  ctx.globalAlpha = 0.18;
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.restore();
-
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-
-  ctx.lineWidth = Math.max(2, r.w * 0.05);
-  ctx.strokeStyle = "rgba(0,0,0,0.75)";
-  ctx.lineCap = "round";
-
-  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, arcSpan);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-function updateSpin(t) {
-  if (!spinActive) return;
-
-  const elapsed = t - spinStartT;
-  if (elapsed < spinDurationMs) return;
-
-  spinActive = false;
-  const to = pendingJumpTo;
-  pendingJumpTo = null;
-
-  const fromSquare = spinSquare;
-
-  recordMove(to);
-  stringJolt = Math.min(1.2, stringJolt + 0.45);
-  
-  const outcomeMap = spinnerOutcomes[String(fromSquare)] || null;
-  const imgPath = outcomeMap ? outcomeMap[String(to)] : null;
-  if (imgPath) lastSpin = { from: fromSquare, to, t0: t, imgPath };
-  else lastSpin = null;
-
-  if (!startSpinIfNeeded(playerSquare)) {
-    inputLocked = false;
-  }
-
-  maybeArmSubstitutionOnLanding(playerSquare, t);
-  armWindowOnLanding(playerSquare, t);
+  armWindowOnLanding(playerSquare, tNow);
+  armSpinnerLanding(playerSquare, tNow);
 }
 
 /* ===============================
@@ -1316,7 +1189,7 @@ function toggleHelp(open = !helpOpen) {
   }
 }
 
-function getHelpLines(tNow) {
+function getHelpLines() {
   const secs = Math.round(RECALL_WINDOW_MS / 1000);
 
   if (helpCopy && Array.isArray(helpCopy.lines)) {
@@ -1339,7 +1212,7 @@ function getHelpLines(tNow) {
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
       "Some squares rewrite themselves after you land on them.",
-      "Type CHEAT : reveal entire board (toggle)",
+      "Type CHEAT : toggle reveal + calm mode",
       "Esc : close help, or return to jumbled board",
       "",
       "? : toggle this help"
@@ -1410,10 +1283,7 @@ function drawHelpOverlay(t) {
    MAIN DRAW
 =============================== */
 function getSquareDisplayText(n) {
-  // Substitution overrides everything for that square
   if (activeSubSquare === n && activeSubText) return activeSubText;
-
-  // Normal text from squareText map
   return squareText[String(n)] || "";
 }
 
@@ -1434,24 +1304,27 @@ function draw(t) {
     const isVis = visible.has(n) || n === 1;
     const isWindow = windowSquares.has(n);
 
-    // Decide which background to draw for this square
+    // Decide which background to draw
     let bgPath = tileBySquare[n];
 
-    // Window: on your current square (after reveal), swap to plain tile for readability
+    // CHEAT: hide window art tiles (doodle squares become default tile)
+    if (revealAll && cheatHideWindowArt && isWindow && defaultTilePath) {
+      bgPath = defaultTilePath;
+    }
+
+    // Window reveal: swap to plain tile for readability when showing text
     if (isWindow && isWindowShowingText(n) && windowPlainTilePath) {
       bgPath = windowPlainTilePath;
     }
 
-    // Draw background
     drawTile(bgPath, rect);
 
-    // Spinner doodle reveal on current square
+    // Spinner pin doodle (only on current square after reveal)
     drawSpinnerPin(n, rect, isVis);
 
-    // Text rules
     const text = getSquareDisplayText(n);
 
-    // Window rule: hide text unless (a) cheat reveal, or (b) you're on it and it's revealed.
+    // Window rule: hide text unless (a) revealAll, or (b) you're on it and it's revealed.
     const allowText = !isWindow || isWindowShowingText(n);
 
     if (text && allowText) {
@@ -1468,7 +1341,6 @@ function draw(t) {
         ctx.restore();
       }
     } else if (!isVis && text && !allowText) {
-      // Even when window hides text, keep fog veil so the square still "belongs" to the haze
       ctx.save();
       ctx.globalAlpha = fogVeilForSquare(n);
       ctx.fillStyle = "#fff";
@@ -1476,17 +1348,35 @@ function draw(t) {
       ctx.restore();
     }
 
-    // Per-square overlays
     drawSubstitutionCue(t, rect, n);
     drawSpinnerOverSquare(n, t);
   }
 
-  // Global overlays
   drawTetherString(t);
   drawToken(t);
   drawSpinnerOutcome(t);
 
-  // Flash feedback on CHEAT toggle
+  if (canRecall(t)) {
+    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
+    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
+    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
+    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
+
+    ctx.save();
+    ctx.font = `800 ${fontPx}px system-ui`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+
+    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText("↩ R", x, y);
+
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fillText("↩ R", x, y);
+
+    ctx.restore();
+  }
+
   if (t < cheatFlashUntil) {
     const remaining = cheatFlashUntil - t;
     const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
@@ -1497,26 +1387,18 @@ function draw(t) {
     ctx.restore();
   }
 
-  // Overlays on top
   drawMagnifierOverlay(t);
   drawHelpOverlay(t);
 }
-
-
-
 
 /* ===============================
    MOVEMENT (1 square at a time)
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
-  
-// If we're on a spinner square and the doodle is revealed,
-// the next movement key triggers the jump instead of stepping.
-if (spinnerReadyOnCurrentSquare()) {
-  triggerSpinnerJump(tNow);
-  return;
-}
+
+  // If standing on a spinner square that has revealed, the NEXT movement key triggers the jump
+  if (triggerSpinnerJump(tNow)) return;
 
   const next = Math.max(1, Math.min(100, playerSquare + delta));
   if (next === playerSquare) return;
@@ -1524,30 +1406,34 @@ if (spinnerReadyOnCurrentSquare()) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
-  // Arm substitution (text rewrite squares)
+  // Arm mechanics on landing
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
-
-  // NEW: arm window behaviour if this is a doodle window square
   armWindowOnLanding(playerSquare, tNow);
-
   armSpinnerLanding(playerSquare, tNow);
 
-  // Spinner may override landing
-  if (startSpinIfNeeded(playerSquare)) return;
-
-  // Hospital pull
+  // Hospital pull (still active in cheat mode; tell me if you want it off too)
   hospitalPullMaybe(tNow);
 }
-
 
 /* ===============================
    INPUT
 =============================== */
-
-// CHEAT typing: type "CHEAT" quickly (window is max gap between letters)
 let cheatBuffer = "";
 let cheatLastT = 0;
 const CHEAT_TIMEOUT_MS = 700;
+
+function setCheatMode(on) {
+  revealAll = !!on;
+
+  // Bundle behaviours
+  cheatHideWindowArt = !!on;
+  cheatDisableSpinners = !!on;
+
+  // Clear any in-progress spinner reveal if we’re disabling spinners
+  if (cheatDisableSpinners) spinnerLanding = null;
+
+  cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
+}
 
 function pushCheatChar(ch, tNow) {
   if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
@@ -1556,8 +1442,7 @@ function pushCheatChar(ch, tNow) {
   cheatBuffer = (cheatBuffer + ch).slice(-5);
 
   if (cheatBuffer === "cheat") {
-    revealAll = !revealAll;
-    cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
+    setCheatMode(!revealAll);
     cheatBuffer = "";
     return true;
   }
@@ -1574,13 +1459,10 @@ document.addEventListener("keydown", (e) => {
   // CHEAT typing has priority (no modifiers)
   if (key.length === 1 && "cheat".includes(key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const toggled = pushCheatChar(key, tNow);
-    if (toggled) {
-      e.preventDefault();
-      return;
-    }
+    if (toggled) { e.preventDefault(); return; }
   }
 
-  const isHelp = (rawKey === "?"); // SHIFT+/ on most keyboards
+  const isHelp = (rawKey === "?");
   const isEsc = (code === "Escape" || key === "escape");
   const isMagnify = (key === "m");
 
@@ -1596,7 +1478,6 @@ document.addEventListener("keydown", (e) => {
     (code === "ArrowLeft") || (code === "ArrowDown") ||
     (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
 
-  // If magnifier is open, movement closes it first (then next keypress moves)
   const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
   if (magnifierOpen) {
     if (isEsc || isMagnify || isHelp || isMovementKey) {
@@ -1610,13 +1491,12 @@ document.addEventListener("keydown", (e) => {
   e.preventDefault();
 
   if (isHelp) { toggleHelp(!helpOpen); return; }
-
   if (isMagnify) { toggleMagnifier(!magnifierOpen); return; }
 
   if (isEsc)  {
     if (helpOpen) { toggleHelp(false); return; }
     if (magnifierOpen) { toggleMagnifier(false); return; }
-    if (revealAll) { revealAll = false; return; }
+    if (revealAll) { setCheatMode(false); return; } // Esc exits cheat bundle
     return;
   }
 
@@ -1642,16 +1522,13 @@ function tick(t) {
   if (stringJolt < 0.001) stringJolt = 0;
 
   updateWindowReveal(t);
-  updateSpinnerLanding(t);   // <-- ADD THIS
+  updateSpinnerLanding(t);
   updateSpin(t);
   updateSubstitution(t);
   draw(t);
 
   rafId = requestAnimationFrame(tick);
 }
-
-
-
 
 /* ===============================
    START
@@ -1676,16 +1553,17 @@ async function start() {
       loadHelpCopy(),
       loadSpinnerArt(),
       loadPopups(),
-      loadWindows() 
+      loadWindows()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
   }
 
   maybeArmSubstitutionOnLanding(playerSquare, performance.now());
-  maybeOpenHelpOnFirstVisit();
   armWindowOnLanding(playerSquare, performance.now());
   armSpinnerLanding(playerSquare, performance.now());
+
+  maybeOpenHelpOnFirstVisit();
 
   if (rafId) cancelAnimationFrame(rafId);
   rafId = requestAnimationFrame(tick);
