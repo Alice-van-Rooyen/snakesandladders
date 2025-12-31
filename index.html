@@ -65,19 +65,18 @@ let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles
 let squareData = {};                                               // data/text.json (supports {text, icon})
 let tileBySquare = {};
 
-// --- POPUPS (yesterday behaviour) ---
+// --- POPUPS ---
 // popups.json format: { "36": { "popup": "..." }, ... }
 let popupMap = {};               // raw object map
 let substitutionArmed = null;    // { square, showAt }
 let activeSubSquare = null;      // number|null
 let activeSubText = "";          // string
-const SUB_DELAY_MS = 320;        // delayed text swap (as yesterday)
+const SUB_DELAY_MS = 320;        // delayed text swap (beat)
 
-// “Windows” list (squares whose icons hide until you land, then icon disappears and text shows)
-let windowSquares = new Set();      // data/windows.json -> { windows:[...], ... }
-const WINDOW_DELAY_MS = 240;        // delay after landing before swapping icon->text
-let windowArmed = null;             // { square:number, revealAt:number }
-let windowRevealed = null;          // number|null (currently revealed window square)
+// --- ICON LANDING "BEAT" (for all icon squares, without windows.json) ---
+const ICON_DELAY_MS = 240;       // delay after landing before swapping icon -> text
+let iconArmed = null;            // { square:number, revealAt:number }
+let iconRevealed = null;         // number|null (square whose icon is currently hidden because you've landed)
 
 // Spinners (mechanics)
 let spinnerMap = {};          // { from: [to,to,...] }
@@ -245,7 +244,6 @@ async function loadText() {
 }
 
 async function loadPopups() {
-  // EXACT yesterday behaviour: keep raw object; expect entry.popup string
   try {
     const res = await fetch("data/popups.json?v=" + Date.now());
     if (!res.ok) throw new Error("popups.json not ok");
@@ -311,19 +309,6 @@ async function loadHelpCopy() {
   }
 }
 
-async function loadWindows() {
-  try {
-    const res = await fetch("data/windows.json?v=" + Date.now());
-    if (!res.ok) throw new Error("windows.json not ok");
-    const data = await res.json();
-
-    const arr = Array.isArray(data.windows) ? data.windows : [];
-    windowSquares = new Set(arr.map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 100));
-  } catch {
-    windowSquares = new Set();
-  }
-}
-
 function preloadImages(paths) {
   const promises = paths.map(p => new Promise(resolve => {
     const img = getImage(p);
@@ -383,9 +368,10 @@ function scrambleText(text, seed) {
 }
 
 /* ===============================
-   POPUPS / SUBSTITUTION (yesterday behaviour)
+   POPUPS / SUBSTITUTION
 =============================== */
 function getSubTextForSquare(n) {
+  if (revealAll) return null; // cheat mode: no popup substitution, just base text
   const entry = popupMap[String(n)];
   if (!entry || typeof entry !== "object") return null;
   const txt = entry.popup;
@@ -401,6 +387,7 @@ function clearActiveSubstitutionIfMoved() {
 }
 
 function maybeArmSubstitutionOnLanding(n, tNow) {
+  if (revealAll) return; // cheat mode: no substitution
   const txt = getSubTextForSquare(n);
   if (!txt) return;
   if (substitutionArmed && substitutionArmed.square === n) return;
@@ -408,8 +395,14 @@ function maybeArmSubstitutionOnLanding(n, tNow) {
 }
 
 function updateSubstitution(t) {
-  clearActiveSubstitutionIfMoved();
+  if (revealAll) {
+    substitutionArmed = null;
+    activeSubSquare = null;
+    activeSubText = "";
+    return;
+  }
 
+  clearActiveSubstitutionIfMoved();
   if (!substitutionArmed) return;
 
   if (playerSquare !== substitutionArmed.square) {
@@ -433,6 +426,46 @@ function getSquareDisplayText(n) {
   if (activeSubSquare === n && activeSubText) return activeSubText;
   const entry = squareData[String(n)] || {};
   return (typeof entry.text === "string") ? entry.text : "";
+}
+
+/* ===============================
+   ICON "BEAT" (icon-first, then text reveals on landing)
+=============================== */
+function clearIconBeatIfMoved() {
+  if (iconRevealed !== null && playerSquare !== iconRevealed) iconRevealed = null;
+  if (iconArmed && playerSquare !== iconArmed.square) iconArmed = null;
+}
+
+function armIconBeatOnLanding(square, tNow) {
+  if (revealAll) return;                 // cheat: no icon mechanics
+  if (square !== playerSquare) return;   // sanity
+  const entry = squareData[String(square)] || {};
+  const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
+  if (!iconPath) return;
+
+  // popup squares keep icon; beat is handled via SUB_DELAY_MS text swap instead
+  if (getSubTextForSquare(square)) return;
+
+  // spinner squares use their own landing reveal
+  if (spinnerSquares.has(square)) return;
+
+  iconArmed = { square, revealAt: tNow + ICON_DELAY_MS };
+}
+
+function updateIconBeat(t) {
+  clearIconBeatIfMoved();
+  if (!iconArmed) return;
+  if (playerSquare !== iconArmed.square) { iconArmed = null; return; }
+
+  if (t >= iconArmed.revealAt) {
+    iconRevealed = iconArmed.square;
+    iconArmed = null;
+  }
+}
+
+function isIconRevealedForSquare(n) {
+  if (revealAll) return true;
+  return (iconRevealed === n && playerSquare === n);
 }
 
 /* ===============================
@@ -474,35 +507,6 @@ function drawIconContain(iconPath, r, opts = {}) {
   ctx.globalAlpha = (opts.alpha ?? 1);
   ctx.drawImage(img, dx, dy, dw, dh);
   ctx.restore();
-}
-
-/* ===============================
-   WINDOWS (icon-first, then text reveals on landing)
-=============================== */
-function clearWindowIfMoved() {
-  if (windowRevealed !== null && playerSquare !== windowRevealed) windowRevealed = null;
-  if (windowArmed && playerSquare !== windowArmed.square) windowArmed = null;
-}
-
-function armWindowOnLanding(square, tNow) {
-  if (!windowSquares.has(square)) return;
-  windowArmed = { square, revealAt: tNow + WINDOW_DELAY_MS };
-}
-
-function updateWindowReveal(t) {
-  clearWindowIfMoved();
-  if (!windowArmed) return;
-  if (playerSquare !== windowArmed.square) { windowArmed = null; return; }
-
-  if (t >= windowArmed.revealAt) {
-    windowRevealed = windowArmed.square;
-    windowArmed = null;
-  }
-}
-
-function isWindowRevealedForSquare(n) {
-  if (revealAll) return true;
-  return (windowRevealed === n && playerSquare === n);
 }
 
 /* ===============================
@@ -764,10 +768,14 @@ function updateSpin(t) {
 
   inputLocked = false;
 
+  // Clear any pending icon beat from the prior square
+  iconArmed = null;
+  iconRevealed = null;
+
   // Arm behaviours on landing
   maybeArmSubstitutionOnLanding(playerSquare, t);
-  armWindowOnLanding(playerSquare, t);
   armSpinnerLanding(playerSquare, t);
+  armIconBeatOnLanding(playerSquare, t);
 }
 
 /* ===============================
@@ -784,6 +792,10 @@ function beginReturnToHospital(tNow, setRecall) {
   spinStartT = tNow;
   pendingJumpTo = 1;
   inputLocked = true;
+
+  // clear icon beat when you're yanked
+  iconArmed = null;
+  iconRevealed = null;
 
   stringJolt = Math.min(1.2, stringJolt + 0.55);
 }
@@ -823,9 +835,10 @@ function attemptRecall(tNow) {
   recordMove(target);
   stringJolt = Math.min(1.0, stringJolt + 0.35);
 
+  // Arm behaviours on landing
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
-  armWindowOnLanding(playerSquare, tNow);
   armSpinnerLanding(playerSquare, tNow);
+  armIconBeatOnLanding(playerSquare, tNow);
 }
 
 /* ===============================
@@ -951,8 +964,7 @@ function getHelpLines(tNow) {
       "Hospital pull: sometimes you are snapped back to square 1.",
       `Recall: if pulled back, press R within ${secs}s to return.`,
       "",
-      "Some squares hide their doodle when you land, so the text can be read.",
-      "Type CHEAT : toggle “study mode” (reveals board + disables spinners + disables hospital pull)",
+      "Type CHEAT : toggle “study mode” (reveals board + disables mechanics + hides icons)",
       "Esc : close help / close magnifier / turn off cheat mode",
       "",
       "? : toggle this help"
@@ -1166,34 +1178,24 @@ function draw(t) {
     }
 
     // Background tile (ALWAYS from tiles.json)
-    let bgPath = tileBySquare[n] || defaultTilePath || "";
-
-    // Optional cheat behaviour: in cheat mode, window squares revert to default blue (for readability)
-    if (revealAll && windowSquares.has(n) && defaultTilePath) bgPath = defaultTilePath;
-
+    const bgPath = tileBySquare[n] || defaultTilePath || "";
     drawTile(bgPath, rect);
 
-    // Icon overlay
+    // Icon + text from text.json
     const entry = squareData[String(n)] || {};
     const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
     const hasIcon = !!iconPath;
 
-    const isWindow = windowSquares.has(n);
-    const windowRevealedNow = isWindowRevealedForSquare(n);
-
-    // Popup squares (speech windows): identified by popups.json having {popup:"..."}
     const hasPopup = !!getSubTextForSquare(n);
+    const iconBeatRevealedNow = isIconRevealedForSquare(n);
 
-    // POPUP squares: icon always stays if present (text swaps underneath after delay)
-    // Window squares: show icon until revealed; then hide icon & show text
-    // Other icon squares: show icon until you land; landing swaps to text (icon hidden)
+    // CHEAT mode: "just the text squares" (icons hidden; mechanics off)
     const showIcon =
       hasIcon &&
+      !revealAll &&
       (
         hasPopup ? true :
-        (isWindow ? !windowRevealedNow :
-          (revealAll || playerSquare !== n)
-        )
+        (playerSquare !== n || !iconBeatRevealedNow)
       );
 
     if (showIcon) {
@@ -1204,16 +1206,16 @@ function draw(t) {
     const text = getSquareDisplayText(n);
 
     // Allow text:
-    // - Popup squares: ALWAYS (base text on load; swaps after landing delay)
-    // - Window squares: only when revealed
-    // - Other icon squares: only when standing on it (or revealAll)
+    // - Cheat mode: always (no icons, no mechanics)
+    // - Popup squares: always (base text swaps after delay)
+    // - Other icon squares: only after beat reveal while standing on it
     // - Plain squares: always
     const allowText =
       !!text &&
       (
-        hasPopup ? true :
-        (isWindow ? windowRevealedNow :
-          (hasIcon ? (revealAll || playerSquare === n) : true)
+        revealAll ? true :
+        (hasPopup ? true :
+          (hasIcon ? (playerSquare === n && iconBeatRevealedNow) : true)
         )
       );
 
@@ -1280,10 +1282,14 @@ function attemptStep(delta, tNow) {
   recordMove(next);
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
+  // Clear icon beat from prior square, then arm on landing
+  iconArmed = null;
+  iconRevealed = null;
+
   // Arm behaviours on landing
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
-  armWindowOnLanding(playerSquare, tNow);
   armSpinnerLanding(playerSquare, tNow);
+  armIconBeatOnLanding(playerSquare, tNow);
 
   hospitalPullMaybe(tNow);
 }
@@ -1305,6 +1311,15 @@ function pushCheatChar(ch, tNow) {
   if (cheatBuffer === "cheat") {
     revealAll = !revealAll;
     cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
+
+    // clear any armed mechanics + icon beat when toggling
+    spinnerLanding = null;
+    substitutionArmed = null;
+    activeSubSquare = null;
+    activeSubText = "";
+    iconArmed = null;
+    iconRevealed = null;
+
     cheatBuffer = "";
     return true;
   }
@@ -1379,11 +1394,12 @@ window.addEventListener("blur", () => {
 /* ===============================
    TICK / LOOP
 =============================== */
+let rafStarted = false;
 function tick(t) {
   stringJolt *= 0.92;
   if (stringJolt < 0.001) stringJolt = 0;
 
-  updateWindowReveal(t);
+  updateIconBeat(t);
   updateSpinnerLanding(t);
   updateSpin(t);
   updateSubstitution(t);
@@ -1405,7 +1421,11 @@ function maybeOpenHelpOnFirstVisit() {
   }
 }
 
+let started = false;
 async function start() {
+  if (started) return;
+  started = true;
+
   resizeCanvas();
 
   try {
@@ -1414,8 +1434,7 @@ async function start() {
       loadText(),
       loadPopups(),
       loadJumps(),
-      loadHelpCopy(),
-      loadWindows()
+      loadHelpCopy()
     ]);
   } catch (err) {
     console.error("data failed to load:", err);
@@ -1424,18 +1443,23 @@ async function start() {
   // Arm behaviours on starting square
   const now = performance.now();
   maybeArmSubstitutionOnLanding(playerSquare, now);
-  armWindowOnLanding(playerSquare, now);
   armSpinnerLanding(playerSquare, now);
+  armIconBeatOnLanding(playerSquare, now);
 
   maybeOpenHelpOnFirstVisit();
-  requestAnimationFrame(tick);
+
+  if (!rafStarted) {
+    rafStarted = true;
+    requestAnimationFrame(tick);
+  }
 }
 
-board.onload = start;
-board.onerror = start;
+// Start once: if the board loads, great; if it fails, also start; if it's already cached, start immediately.
+board.onload = () => start();
+board.onerror = () => start();
+if (board.complete) start();
 
 window.addEventListener("resize", () => resizeCanvas());
-start();
 </script>
 </body>
 </html>
