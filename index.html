@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Convalescent Snakes & Ladders</title>
+  <title>Convalescent Snakes & Ladders - TEST</title>
 
   <style>
     body {
@@ -1090,30 +1090,54 @@ function draw(t) {
       continue;
     }
 
-    // Background tile
-    let bgPath = tileBySquare[n];
+    // Background tile (ALWAYS from tiles.json; never forced blue just because an icon exists)
+    let bgPath = tileBySquare[n] || defaultTilePath || "";
 
     // Optional cheat behaviour: in cheat mode, window squares revert to default blue (for readability)
     if (revealAll && windowSquares.has(n) && defaultTilePath) bgPath = defaultTilePath;
 
     drawTile(bgPath, rect);
 
-    // Icon overlay
+    // Icon/text behaviour:
+    // - If a square has an icon (in text.json), draw the icon when you're NOT on it.
+    // - When you land on it, temporarily swap to text (icon hidden) while you remain on it.
+    // - Window squares keep their delayed reveal behaviour.
     const entry = squareData[String(n)] || {};
     const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
+    const hasIcon = !!iconPath;
 
     const isWindow = windowSquares.has(n);
     const windowRevealedNow = isWindowRevealedForSquare(n);
 
-    // Window squares: show icon until revealed; then hide icon & show text
-    const showIcon = !!iconPath && (!isWindow || !windowRevealedNow);
+    const isOnThisSquare = (playerSquare === n);
+
+    // Show icon?
+    // - In revealAll: keep showing icons (study mode)
+    // - Window squares: show icon until revealed (then hide)
+    // - Non-window icon squares: show icon only when not standing on it (swap to text on landing)
+    const showIcon =
+      hasIcon &&
+      (
+        revealAll ||
+        (isWindow ? !windowRevealedNow : !isOnThisSquare)
+      );
+
     if (showIcon) {
       drawIconContain(iconPath, rect, { padFrac: ICON_PAD_FRAC, alpha: 1 });
     }
 
     // Text layer
     const text = (typeof entry.text === "string") ? entry.text : "";
-    const allowText = !isWindow || windowRevealedNow;
+
+    // Allow text?
+    // - Window squares: only after reveal
+    // - Non-window icon squares: only while standing on it (unless revealAll)
+    // - Plain text squares: as before
+    const allowText =
+      !text ? false :
+      (isWindow ? windowRevealedNow :
+        (hasIcon ? (revealAll || isOnThisSquare) : true)
+      );
 
     if (text && allowText) {
       // cipher restriction: if not visible, show scrambled version (no fog veil)
