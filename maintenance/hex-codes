@@ -1,0 +1,33 @@
+# Tile Colors Reference
+
+**Version:** 1
+
+---
+
+## Available Tile Colors
+
+| Color Name    | Hex Code  | Preview |
+|---------------|-----------|---------|
+| aqua          | `#9aeed8` | 🟦 |
+| blue          | `#8daff3` | 🔵 |
+| darkpink      | `#ff66cc` | 🩷 |
+| darkyellow    | `#ffc000` | 🟡 |
+| gold          | `#e2ac00` | 🟨 |
+| green         | `#47d45a` | 🟢 |
+| greggsblue    | `#00558f` | 🔷 |
+| grey          | `#d1d1d1` | ⚪ |
+| lime          | `#B0FB65` | 🟢 |
+| orange        | `#ff6600` | 🟠 |
+| peach         | `#f9d6c3` | 🟤 |
+| pink          | `#f0c6eb` | 💗 |
+| purple        | `#c46ae0` | 🟣 |
+| red           | `#ff4743` | 🔴 |
+| terracotta    | `#d4775a` | 🟧 |
+| yellow        | `#fefe68` | 🟡 |
+
+---
+
+## Usage
+
+These hex codes are for reference, they refer to the selected colours for tile graphics. They are not referenced by index.html.
+```
