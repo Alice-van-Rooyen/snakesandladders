@@ -97,7 +97,7 @@
   "87":  { "text": "You felt great for two days in a row - have some crushing fatigure ... and PAIN.", "icon": null},
   "88":  { "text": "Walking pace: geriatric tortoise on sedatives.", "icon": "assets/icons/tortoise.svg"},
   "89":  { "text": "You finally understand that convalescence is a pattern of stable chaos. Your bed is the attractor.", "icon": null},
-  "90":  { "text": "Kitchen noises are a physical assault. You cover your ears in pain.", "icon": null},
+  "90":  { "text": "Noise has become a physical assault. You cover your ears in pain.", "icon": null},
 
   "91":  { "text": "Can solve for 'x', cannot put away laundry.", "icon": null},
   "92":  { "text": "You can sign your own name again, but the electrical storm in your hand is ongoing.", "icon": null},
@@ -108,6 +108,6 @@
   "97":  { "text": "You play the 'I nearly died' card during a vicious round of Uno, your brother plays the +5 card.", "icon": null },
   "98":  { "text": "An acquaintance wants to visit. It's easier to unfriend them than tidy the house.", "icon": null},
   "99":  { "text": "You compare weight loss wattles with a colleague on Ozempic. You're winning.", "icon": null},
-  "100": { "text": "'Early convalescence' is over. Congratulations?" , "icon": "assets/icons/balloons.svg"}
+  "100": { "text": "'Early convalescence' is over. Yay?" , "icon": "assets/icons/balloons.svg"}
   }
 }
