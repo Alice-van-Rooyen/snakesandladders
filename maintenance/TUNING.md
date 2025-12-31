@@ -32,7 +32,7 @@ const SUB_DELAY_MS = 180;
 | Natural   | 150–200 |
 | Dramatic  | 300–450 |
 
-3. Obscurity / Fog Control
+## 3. Obscurity / Fog Control
 
 Controls how unread squares appear.
 
@@ -46,7 +46,7 @@ const far  = 0.92;
 | Heavy   | 0.65 | 0.97 |
 
 
-4. Substitution Flash
+## 4. Substitution Flash
 
 Controls the visual flash when a square’s text changes.
 
@@ -58,7 +58,7 @@ const SUB_CUE_MS = 260;
 | Strong   | 350   |
 
 
-5. Token Position
+## 5. Token Position
 
 Controls how far the token sits from the square corner.
 
@@ -66,7 +66,7 @@ let TOKEN_PAD_FRAC = 0.12;
 
 Recommended range: 0.10 – 0.16
 
-6. Tether Behaviour
+## 6. Tether Behaviour
 
 Controls the visual connection between the player and the origin square.
 
@@ -75,7 +75,7 @@ STRING_COLOR
 spring strength / wobble parameters
 
 
-7. Timing Controls
+## 7. Timing Controls
 
 | Variable           | Purpose                    |
 | ------------------ | -------------------------- |
@@ -84,7 +84,7 @@ spring strength / wobble parameters
 | `CHEAT_FLASH_MS`   | Cheat mode flash length    |
 
 
-8. Design Intent
+## 8. Design Intent
 
 This system is tuned for:
 
@@ -95,7 +95,7 @@ Attention over efficiency
 Legibility over density
 
 
-9. Safe Editing Guidelines
+## 9. Safe Editing Guidelines
 
 You may safely modify:
 
