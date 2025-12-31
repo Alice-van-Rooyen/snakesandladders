@@ -1,4 +1,4 @@
-# Convalescent Board
+# Convalescent Snakes & Ladders Board
 ## Overview & Maintenance Notes
 
 This project is a deliberately constrained interactive system designed to model the experience of recovery rather than simulate recovery itself.
