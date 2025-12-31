@@ -2,7 +2,7 @@
   "_meta": { "version": 2 },
   
   "defaultTile": "blue",
-  "_comment": "default blue tiles: 5, 12, 25, 57, 63, 67, 71, 83, 85, 100",
+  "_comment": "default blue tiles: 5, 12, 25, 57, 63, 67, 71, 83, 85, 94, 100",
   
   "tiles": {
     "aqua":   "assets/tiles/aqua.svg",
@@ -40,7 +40,7 @@
     "purple": [7, 26, 59, 47, 69, 86],
     "red": [3, 29, 36, 42, 74, 95],
     "terracotta": [10, 18, 52, 75, 98],
-    "yellow": [2, 11, 27, 46, 51, 81],
+    "yellow": [2, 11, 27, 46, 51, 60, 81],
     
     "img_cutlery": [22],
     "img_hospital": [1],  
