@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Convalescent Snakes & Ladders - TEST</title>
+  <title>Convalescent Snakes & Ladders</title>
 
   <style>
     body {
@@ -64,6 +64,12 @@ const CHEAT_FLASH_MS = 260;
 let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
 let squareData = {};                                               // data/text.json (supports {text, icon})
 let tileBySquare = {};
+
+// Speech popup squares:
+// - On load: draw text + icon from text.json
+// - On landing: replace text with popups.json text (icon stays)
+let popupData = {};                 // data/popups.json (supports {squares:{...}} or flat mapping)
+let popupSquares = new Set();       // derived from popupData keys
 
 // “Windows” list (squares whose icons hide until you land, then icon disappears and text shows)
 let windowSquares = new Set();      // data/windows.json -> { windows:[...], ... }
@@ -234,6 +240,39 @@ async function loadText() {
   }
 
   squareData = out;
+}
+
+async function loadPopups() {
+  try {
+    const res = await fetch("data/popups.json?v=" + Date.now());
+    if (!res.ok) throw new Error("popups.json not ok");
+    const data = await res.json();
+
+    const out = {};
+    if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
+      for (const [k, v] of Object.entries(data.squares)) {
+        if (typeof v === "string") out[k] = v;
+        else if (v && typeof v === "object") {
+          const text = (typeof v.text === "string") ? v.text : "";
+          out[k] = text;
+        }
+      }
+    } else if (data && typeof data === "object") {
+      for (const [k, v] of Object.entries(data)) {
+        if (typeof v === "string") out[k] = v;
+        else if (v && typeof v === "object") {
+          const text = (typeof v.text === "string") ? v.text : "";
+          out[k] = text;
+        }
+      }
+    }
+
+    popupData = out;
+    popupSquares = new Set(Object.keys(popupData).map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 100));
+  } catch {
+    popupData = {};
+    popupSquares = new Set();
+  }
 }
 
 async function loadJumps() {
@@ -997,6 +1036,15 @@ function drawRichTextBox(text, box, opts = {}) {
   ctx.restore();
 }
 
+function activeTextForSquare(n) {
+  const entry = squareData[String(n)] || {};
+  const baseText = (typeof entry.text === "string") ? entry.text : "";
+  const popupText = (typeof popupData[String(n)] === "string") ? popupData[String(n)] : "";
+
+  if (popupText && playerSquare === n) return popupText;
+  return baseText;
+}
+
 function drawMagnifierOverlay(t) {
   if (!magnifierOpen) return;
 
@@ -1008,8 +1056,7 @@ function drawMagnifierOverlay(t) {
   const x = pad;
   const y = S - pad - panelH;
 
-  const entry = squareData[String(playerSquare)] || {};
-  const text = (typeof entry.text === "string" ? entry.text : "") || "(no text for this square)";
+  const text = activeTextForSquare(playerSquare) || "(no text for this square)";
 
   ctx.save();
 
@@ -1090,7 +1137,7 @@ function draw(t) {
       continue;
     }
 
-    // Background tile (ALWAYS from tiles.json; never forced blue just because an icon exists)
+    // Background tile (ALWAYS from tiles.json)
     let bgPath = tileBySquare[n] || defaultTilePath || "";
 
     // Optional cheat behaviour: in cheat mode, window squares revert to default blue (for readability)
@@ -1098,50 +1145,54 @@ function draw(t) {
 
     drawTile(bgPath, rect);
 
-    // Icon/text behaviour:
-    // - If a square has an icon (in text.json), draw the icon when you're NOT on it.
-    // - When you land on it, temporarily swap to text (icon hidden) while you remain on it.
-    // - Window squares keep their delayed reveal behaviour.
     const entry = squareData[String(n)] || {};
     const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
     const hasIcon = !!iconPath;
 
-    const isWindow = windowSquares.has(n);
+    const isPopup = popupSquares.has(n);        // speech windows behaviour
+    const isWindow = windowSquares.has(n) && !isPopup; // do not apply window-hide logic to popup squares
     const windowRevealedNow = isWindowRevealedForSquare(n);
 
     const isOnThisSquare = (playerSquare === n);
 
-    // Show icon?
-    // - In revealAll: keep showing icons (study mode)
-    // - Window squares: show icon until revealed (then hide)
-    // - Non-window icon squares: show icon only when not standing on it (swap to text on landing)
+    // Icon visibility
+    // - Popup squares: icon shows on load AND when standing on it (per your spec)
+    // - Window squares: show icon until revealed, then hide
+    // - Other icon squares: show icon when not standing on it (swap to text on landing)
     const showIcon =
       hasIcon &&
       (
-        revealAll ||
-        (isWindow ? !windowRevealedNow : !isOnThisSquare)
+        isPopup ? true :
+        (isWindow ? !windowRevealedNow :
+          (revealAll || !isOnThisSquare)
+        )
       );
 
     if (showIcon) {
       drawIconContain(iconPath, rect, { padFrac: ICON_PAD_FRAC, alpha: 1 });
     }
 
-    // Text layer
-    const text = (typeof entry.text === "string") ? entry.text : "";
+    // Text selection
+    const baseText = (typeof entry.text === "string") ? entry.text : "";
+    const popupText = (typeof popupData[String(n)] === "string") ? popupData[String(n)] : "";
+    const textToUse = (isPopup && popupText && isOnThisSquare) ? popupText : baseText;
 
-    // Allow text?
+    // Text visibility rules
+    // - Popup squares: text is shown on load (base), and swapped to popupText when standing on it
     // - Window squares: only after reveal
-    // - Non-window icon squares: only while standing on it (unless revealAll)
+    // - Other icon squares: only while standing on it (unless revealAll)
     // - Plain text squares: as before
     const allowText =
-      !text ? false :
-      (isWindow ? windowRevealedNow :
-        (hasIcon ? (revealAll || isOnThisSquare) : true)
+      !!textToUse &&
+      (
+        isPopup ? true :
+        (isWindow ? windowRevealedNow :
+          (hasIcon ? (revealAll || isOnThisSquare) : true)
+        )
       );
 
-    if (text && allowText) {
-      // cipher restriction: if not visible, show scrambled version (no fog veil)
-      const displayText = (isVis || revealAll) ? text : scrambleText(text, n);
+    if (allowText) {
+      const displayText = (isVis || revealAll) ? textToUse : scrambleText(textToUse, n);
       drawRichText(displayText, rect, 1);
     }
 
@@ -1331,6 +1382,7 @@ async function start() {
     await Promise.all([
       loadTiles(),
       loadText(),
+      loadPopups(),
       loadJumps(),
       loadHelpCopy(),
       loadWindows()
