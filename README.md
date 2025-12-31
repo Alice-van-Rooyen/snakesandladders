@@ -1,6 +1,7 @@
 # snakesandladders
 Convalescent Snakes &amp; Ladders GitHub Page repository
 
+Note: Icons are defined elsewhere. Editing text.json only affects the written text shown on each square.
 
 ## ✏️ Editing Square Text (JSON Guide)
 
@@ -83,7 +84,7 @@ You can combine line breaks, italics, and bold.
 ### 6️⃣ Things NOT to do ❌
 - ❌ Don’t use HTML (`<b>`, `<i>`)
 - ❌ Don’t forget to close `*` or `**`
-- ❌ Don’t remove the surrounding quotation marks
+- ❌ Don’t remove the surrounding quotation marks - If you need quotation marks inside text, use:  "He said \"rest now\" and smiled."
 - ❌ Don’t worry about font size — it’s automatic
 
 If text doesn’t appear, it’s usually:
