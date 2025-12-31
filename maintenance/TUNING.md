@@ -1,126 +1,115 @@
-Convalescent Board — Tuning & Adjustment Guide
+# Convalescent Board — Tuning & Adjustment Guide
 
-This document explains how to fine-tune feel, pacing, and readability without changing game logic.
-All values listed here are safe to adjust and will not break behaviour.
+This document explains how to fine-tune *feel*, *timing*, and *readability* without altering core mechanics.
 
-1. Text Density & Readability
+---
 
-Text layout is controlled inside the drawRichText() function.
+## 1. Text Density & Readability
 
+Text layout is controlled inside the `drawRichText()` function.
+
+```js
 const lineH = Math.round(fontSize * 1.12);
 const gapH  = Math.round(lineH * 0.22);
 
-Adjusting readability
-Effect	Suggested Values
-Tighter / denser	1.05 / 0.15
-Balanced (default)	1.12 / 0.22
-Airy / spacious	1.25 / 0.35
 
-Use tighter spacing when text density is high; looser spacing when you want calm or emphasis.
+| Effect   | Values      |
+| -------- | ----------- |
+| Tighter  | 1.05 / 0.15 |
+| Balanced | 1.12 / 0.22 |
+| Airy     | 1.25 / 0.35 |
 
-2. Delay Before Text Appears (Icon → Text)
 
-When a square has an icon, the text appears after a short delay.
+## 2. Delay Before Text Appears
+
+When landing on a square, text appears after a short pause.
 
 const SUB_DELAY_MS = 180;
 
-Suggested ranges
-Feel	Value
-Immediate	80
-Natural / soft	150–200
-Dramatic pause	300–450
+| Feel      | Value   |
+| --------- | ------- |
+| Immediate | 80      |
+| Natural   | 150–200 |
+| Dramatic  | 300–450 |
 
-This controls perceived attentiveness — longer delays feel more intentional.
+3. Obscurity / Fog Control
 
-3. Visual Obscurity (“Fog” / Cipher Effect)
-
-Controls how obscured unread squares appear.
+Controls how unread squares appear.
 
 const near = 0.55;
 const far  = 0.92;
 
-Effect	near	far
-Light veil	0.45	0.80
-Default	0.55	0.92
-Heavy concealment	0.65	0.97
+| Effect  | near | far  |
+| ------- | ---- | ---- |
+| Light   | 0.45 | 0.80 |
+| Default | 0.55 | 0.92 |
+| Heavy   | 0.65 | 0.97 |
 
-Lower = clearer, higher = more obscured.
 
-4. Substitution Flash (Text Swap Cue)
+4. Substitution Flash
 
-When a square replaces its text (e.g. popup events), a brief visual cue occurs.
+Controls the visual flash when a square’s text changes.
 
 const SUB_CUE_MS = 260;
+| Feel     | Value |
+| -------- | ----- |
+| Subtle   | 180   |
+| Balanced | 260   |
+| Strong   | 350   |
 
-Feel	Value
-Subtle	180
-Balanced	260
-Emphatic	350
-5. Token Positioning
 
-Controls how far the player token sits from the square corner.
+5. Token Position
+
+Controls how far the token sits from the square corner.
 
 let TOKEN_PAD_FRAC = 0.12;
 
+Recommended range: 0.10 – 0.16
 
-Typical range: 0.10 – 0.16
+6. Tether Behaviour
 
-Smaller = closer to the corner
-Larger = more “floating” feel
+Controls the visual connection between the player and the origin square.
 
-6. Tether / String Behaviour
+STRING_COLOR
 
-Visual connection between the token and square 1.
+spring strength / wobble parameters
 
-Key tunables:
 
-STRING_COLOR — opacity & tone
+7. Timing Controls
 
-stringJolt — how reactive the string is to movement
+| Variable           | Purpose                    |
+| ------------------ | -------------------------- |
+| `SPIN_DURATION_MS` | Spinner animation duration |
+| `RECALL_WINDOW_MS` | Time allowed to recall     |
+| `CHEAT_FLASH_MS`   | Cheat mode flash length    |
 
-internal wobble values in drawTetherString()
 
-These affect feel, not mechanics. Safe to experiment.
-
-7. Timing Controls Summary
-Variable	Purpose
-SPIN_DURATION_MS	Length of spinner animation
-RECALL_WINDOW_MS	Time allowed to recall after hospital pull
-CHEAT_FLASH_MS	Flash duration when cheat mode toggles
-8. Design Philosophy (Intentional Constraints)
+8. Design Intent
 
 This system is tuned for:
 
-Slowness over efficiency
+Slowness over speed
+
+Attention over efficiency
 
 Legibility over density
 
-Partial information over certainty
 
-If something feels too easy, increase delay or obscurity.
-If it feels frustrating, reduce opacity or timing—not structure.
+9. Safe Editing Guidelines
 
-9. Safe Editing Rules
+You may safely modify:
 
-You can safely change:
-
-Numeric constants
-
-Timing values
+Numeric values
 
 Colour values
 
 Text strings
 
-Avoid changing:
-
-Function names
+Avoid modifying:
 
 Control flow
 
+State transitions
+
+End of document
 Event wiring
-
-Unless you want to alter behaviour.
-Avoid renaming functions or removing blocks unless you intend to change behaviour.
-
-End of document.
