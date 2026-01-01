@@ -986,63 +986,66 @@ function drawHelpOverlay(t) {
   if (!helpOpen) return;
 
   const S = canvas.clientWidth;
+
+  // Panel geometry
   const pad = Math.max(16, S * 0.05);
   const boxW = S - pad * 2;
   const boxH = S - pad * 2;
 
   ctx.save();
 
+  // Dim background
   ctx.globalAlpha = 0.62;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, S, S);
 
+  // Panel background
   ctx.globalAlpha = 0.96;
   ctx.fillStyle = "#fff";
   ctx.fillRect(pad, pad, boxW, boxH);
 
+  // Panel border
   ctx.globalAlpha = 0.9;
   ctx.strokeStyle = "rgba(0,0,0,0.65)";
   ctx.lineWidth = Math.max(2, S * 0.006);
   ctx.strokeRect(pad, pad, boxW, boxH);
 
+  // Copy
   const { title, lines } = getHelpLines(t);
-  const left = pad + Math.max(16, S * 0.05);
-  const maxTextWidth = S * 0.75;
-  let y = pad + Math.max(16, S * 0.05);
 
-  l// --- Responsive text sizing (stable across devices) ---
+  // Text layout anchors
+  const innerPad = Math.max(16, S * 0.05);
+  const left = pad + innerPad;
+  const maxTextWidth = boxW - innerPad * 2;
+  let y = pad + innerPad;
 
-let titleSize = 20;
-let bodySize  = 14;
+  // --- Responsive text sizing (prefer consistent sizes; shrink only if needed) ---
+  let titleSize = 20;
+  let bodySize = 14;
 
-const minTitle = 16;
-const minBody  = 11;
+  const minTitle = 16;
+  const minBody = 11;
 
-const pad = Math.max(16, S * 0.05);
-const boxH = S - pad * 2;
+  const lineGapFor = (bs) => Math.round(bs * 0.6);
 
-const { title, lines } = getHelpLines(t);
+  // Estimate height needed (good-enough; prevents overflow on small screens)
+  const estimateHeight = (ts, bs) => {
+    const lineGap = lineGapFor(bs);
+    const titleH = ts * 1.4;
+    const lineH = bs + lineGap;
+    // Add a bit of padding at bottom
+    return titleH + (lines.length * lineH) + 12;
+  };
 
-// Estimate vertical space needed
-let estimatedHeight = 
-  (titleSize * 1.4) +
-  (lines.length * (bodySize + Math.round(bodySize * 0.6))) +
-  20;
+  while (estimateHeight(titleSize, bodySize) > (boxH - innerPad * 1.2) &&
+         (titleSize > minTitle || bodySize > minBody)) {
+    titleSize = Math.max(minTitle, titleSize - 1);
+    bodySize = Math.max(minBody, bodySize - 1);
+  }
 
-// Reduce font sizes only if needed
-while (estimatedHeight > boxH && (titleSize > minTitle || bodySize > minBody)) {
-  titleSize = Math.max(minTitle, titleSize - 1);
-  bodySize  = Math.max(minBody, bodySize - 1);
-  estimatedHeight =
-    (titleSize * 1.4) +
-    (lines.length * (bodySize + Math.round(bodySize * 0.6))) +
-    20;
-}
+  const lineGap = lineGapFor(bodySize);
 
-const lineGap = Math.round(bodySize * 0.6);
-
-
-
+  // Draw title
   ctx.globalAlpha = 1;
   ctx.fillStyle = "rgba(0,0,0,0.92)";
   ctx.font = `700 ${titleSize}px system-ui`;
@@ -1051,6 +1054,7 @@ const lineGap = Math.round(bodySize * 0.6);
   ctx.fillText(title, left, y, maxTextWidth);
   y += titleSize * 1.4;
 
+  // Draw lines
   ctx.fillStyle = "rgba(0,0,0,0.85)";
   ctx.font = `${bodySize}px system-ui`;
 
@@ -1060,6 +1064,7 @@ const lineGap = Math.round(bodySize * 0.6);
     y += bodySize + lineGap;
   }
 
+  // Recall hint
   if (canRecall(t)) {
     y += bodySize * 0.6;
     ctx.fillStyle = "rgba(0,0,0,0.9)";
@@ -1069,6 +1074,7 @@ const lineGap = Math.round(bodySize * 0.6);
 
   ctx.restore();
 }
+
 
 /* ===============================
    MAGNIFIER
