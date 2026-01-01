@@ -2,7 +2,7 @@
   "_meta": { "version": 2 },
   
   "defaultTile": "blue",
-  "_comment": "default blue tiles: 5, 12, 25, 57, 63, 67, 71, 85, 94, 100",
+  "_comment": "default blue tiles: 5, 12, 25, 47, 57, 63, 67, 71, 85, 94, 100",
   
   "tiles": {
     "aqua":   "assets/tiles/aqua.svg",
