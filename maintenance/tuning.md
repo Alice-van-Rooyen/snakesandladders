@@ -1,123 +1,128 @@
 # Convalescent Board — Tuning & Adjustment Guide
 
-This document explains how to fine-tune *feel*, *timing*, and *readability* without altering core mechanics.
+**Current architecture version**
 
----
+This document describes the intentional tuning points available in the game. These affect feel, pace, and legibility — not core mechanics.
 
-## 1. Text Density & Readability
+## 1. Text Readability & Density
 
-Text layout is controlled inside the `drawRichText()` function.
-```js
-const lineH = Math.round(fontSize * 1.12);
-const gapH  = Math.round(lineH * 0.22);
+Text rendering is handled by the rich-text layout system inside `drawRichText()`.
+
+**Key controls:**
+```javascript
+const lineH = fontSize * 1.10;
+const gapH  = lineH * 0.18;
 ```
 
-| Effect   | Values      |
-| -------- | ----------- |
-| Tighter  | 1.05 / 0.15 |
-| Balanced | 1.12 / 0.22 |
-| Airy     | 1.25 / 0.35 |
+**Effects:**
 
----
+| Change | Result |
+|--------|--------|
+| Increase `lineH` | More vertical breathing room |
+| Decrease `lineH` | Denser, more compressed text |
+| Increase `gapH` | More paragraph separation |
+| Decrease `gapH` | More compact reading block |
 
-## 2. Delay Before Text Appears
+This affects all square text, magnifier text, and pop-ups.
 
-When landing on a square, text appears after a short pause.
-```js
-const SUB_DELAY_MS = 180;
+## 2. Text Reveal Timing (Substitution Delay)
+
+When a square contains hidden text, it reveals after a short pause.
+```javascript
+const SUB_DELAY_MS = 320;
 ```
 
-| Feel      | Value   |
-| --------- | ------- |
-| Immediate | 80      |
-| Natural   | 150–200 |
-| Dramatic  | 300–450 |
+**Suggested Ranges:**
 
----
+| Feel | Value |
+|------|-------|
+| Snappy | 150–200 |
+| Default | ~320 |
+| Suspenseful | 400–500 |
 
-## 3. Obscurity / Fog Control
+This only affects substitution squares (not windows or spinners).
 
-Controls how unread squares appear.
-```js
-const near = 0.55;
-const far  = 0.92;
+## 3. Spinner Reveal Timing
+
+The delay between landing on a spinner and the snake icon appearing:
+```javascript
+const SPINNER_REVEAL_MS = 340;
 ```
 
-| Effect  | near | far  |
-| ------- | ---- | ---- |
-| Light   | 0.45 | 0.80 |
-| Default | 0.55 | 0.92 |
-| Heavy   | 0.65 | 0.97 |
+**Guidance:**
 
----
+| Feel | Value |
+|------|-------|
+| Immediate | 200 |
+| Tactile / deliberate | 300–400 |
+| Dramatic | 500+ |
 
-## 4. Substitution Flash
+This controls anticipation, not movement speed.
 
-Controls the visual flash when a square's text changes.
-```js
-const SUB_CUE_MS = 260;
-```
+## 4. Token Positioning
 
-| Feel     | Value |
-| -------- | ----- |
-| Subtle   | 180   |
-| Balanced | 260   |
-| Strong   | 350   |
-
----
-
-## 5. Token Position
-
-Controls how far the token sits from the square corner.
-```js
+Token placement within each square:
+```javascript
 let TOKEN_PAD_FRAC = 0.12;
 ```
 
-Recommended range: 0.10 – 0.16
+Higher values push the token inward; lower values let it hug the corner.
 
----
+**Safe range:** `0.10 – 0.16`
 
-## 6. Tether Behaviour
+## 5. Tether / String Behaviour
 
-Controls the visual connection between the player and the origin square.
+The elastic "string" between home and token uses these parameters:
+```javascript
+const STRING_COLOR = "rgba(184, 38, 60, 0.55)";
+```
 
-- `STRING_COLOR`
-- spring strength / wobble parameters
+Motion characteristics are derived from:
+- Distance between token and home
+- `stringJolt` (impulse on movement)
+- Implicit damping in the draw loop
 
----
+You generally should not tune this unless you want a different emotional tone (e.g. frantic vs weighted).
 
-## 7. Timing Controls
+## 6. Spinner & Recall Timing
 
-| Variable           | Purpose                    |
-| ------------------ | -------------------------- |
-| `SPIN_DURATION_MS` | Spinner animation duration |
-| `RECALL_WINDOW_MS` | Time allowed to recall     |
-| `CHEAT_FLASH_MS`   | Cheat mode flash length    |
+| Control | Meaning |
+|---------|---------|
+| `SPIN_DURATION_MS` | Duration of spinner animation |
+| `RECALL_WINDOW_MS` | Time window to recall after hospital pull |
 
----
+Longer values = more deliberation, less twitch.
 
-## 8. Design Intent
+## 7. Visibility & Revelation Model
 
-This system is tuned for:
+Visibility is governed by:
+- Player position
+- `AHEAD` and `TRAIL_BEHIND` constants
+- Cheat mode override
 
-- Slowness over speed
-- Attention over efficiency
-- Legibility over density
+There is no fog layer anymore — visibility is purely logical.
 
----
+## 8. Safe to Change / Do Not Touch
 
-## 9. Safe Editing Guidelines
+### Safe to adjust
+- Numeric timing values
+- Font sizes
+- Padding and spacing
+- Colour constants
+- Text content
 
-**You may safely modify:**
-- Numeric values
-- Colour values
-- Text strings
+### Avoid unless refactoring intentionally
+- Event ordering
+- State transitions (`spinActive`, `windowArmed`, etc.)
+- Movement logic (`recordMove`, `attemptStep`)
+- Visibility rules
 
-**Avoid modifying:**
-- Control flow
-- State transitions
-- Event wiring
+## 9. Design Intent (Anchor)
 
----
+This system is tuned to feel:
+- Deliberate, not fast
+- Legible, not flashy
+- Uncertain, not random
+- Progressive, but never frictionless
 
-End of document
+Every delay, pause, and constraint exists to create thought, not friction.
