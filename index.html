@@ -133,6 +133,10 @@ let PIN_PAD_FRAC   = 0.10;         // hospital knot anchor
 let RECALL_LABEL_X_FRAC = 0.14;    // move label left
 let RECALL_LABEL_Y_FRAC = 0.08;    // smaller = lower label
 
+// Input pacing (prevents skipping time-gated mechanics)
+const STEP_COOLDOWN_MS = 180; // try 180–220
+let stepLockedUntil = 0;
+  
 // Image cache
 const imageCache = new Map();
 function getImage(path) {
@@ -1329,6 +1333,7 @@ function draw(t) {
 =============================== */
 function attemptStep(delta, tNow) {
   if (inputLocked) return;
+  if (tNow < stepLockedUntil) return;
 
   // Spinner: if ready, next movement key triggers the jump instead of stepping.
   if (triggerSpinnerJump(tNow)) return;
@@ -1337,6 +1342,8 @@ function attemptStep(delta, tNow) {
   if (next === playerSquare) return;
 
   recordMove(next);
+  stepLockedUntil = tNow + STEP_COOLDOWN_MS; // <-- key line
+
   stringJolt = Math.min(1.0, stringJolt + 0.25);
 
   // Arm behaviours on landing
@@ -1346,6 +1353,7 @@ function attemptStep(delta, tNow) {
 
   hospitalPullMaybe(tNow);
 }
+
 
 /* ===============================
    INPUT
