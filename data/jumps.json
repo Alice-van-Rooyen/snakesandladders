@@ -3,10 +3,10 @@
     "notes": "Each spinner has 3 outcomes: [snake(back up to 16), nudge(+1..+3), ladder(forward up to 12)]. Tuned to keep chaos but slow early racing."
   },
   "spinners": {
-    "14": [4, 16, 23],
-    "16": [7, 18, 24],
+    "14": [6, 16, 23],
+    "16": [12, 18, 24],
     "21": [15, 23, 29],
-    "26": [12, 28, 35],
+    "26": [17, 28, 35],
     "32": [23, 44, 51],
     "38": [24, 41, 52],
     "46": [30, 48, 58],
