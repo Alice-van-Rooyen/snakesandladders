@@ -1210,13 +1210,15 @@ function draw(t) {
     // Window squares: show icon until revealed; then hide icon & show text
     // Other icon squares: show icon until you land; landing swaps to text (icon hidden)
     const showIcon =
-      hasIcon &&
-      (
-        hasPopup ? true :
-        (isWindow ? !windowRevealedNow :
-          (revealAll || playerSquare !== n)
-        )
-      );
+  hasIcon &&
+  !revealAll &&                 // ← CHEAT mode: text-only layer (no icons)
+  (
+    hasPopup ? true :
+    (isWindow ? !windowRevealedNow :
+      (playerSquare !== n)       // (revealAll removed)
+    )
+  );
+
 
     if (showIcon) {
       drawIconContain(iconPath, rect, { padFrac: ICON_PAD_FRAC, alpha: 1 });
