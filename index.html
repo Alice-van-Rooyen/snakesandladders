@@ -1010,9 +1010,27 @@ function drawHelpOverlay(t) {
   const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
 
-  const titleSize = Math.max(18, Math.round(S * 0.038));
-  const bodySize  = Math.max(13, Math.round(S * 0.026));
-  const lineGap   = Math.round(bodySize * 0.6);
+  let titleSize = 20;
+let bodySize  = 14;
+
+const minTitle = 16;
+const minBody  = 11;
+
+const pad = Math.max(16, S * 0.05);
+const boxH = S - pad * 2;
+
+// Rough height estimate (good enough)
+const { title, lines } = getHelpLines(t);
+const nonEmptyLines = lines.length;
+const estimate = (titleSize * 1.4) + nonEmptyLines * (bodySize + Math.round(bodySize * 0.6)) + 20;
+
+while (estimate > boxH && (titleSize > minTitle || bodySize > minBody)) {
+  titleSize = Math.max(minTitle, titleSize - 1);
+  bodySize  = Math.max(minBody, bodySize - 1);
+}
+
+const lineGap = Math.round(bodySize * 0.6);
+
 
   ctx.globalAlpha = 1;
   ctx.fillStyle = "rgba(0,0,0,0.92)";
