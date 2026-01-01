@@ -3,15 +3,14 @@
 
 **This repository is published as a reference artefact. Please fork rather than edit directly.**
 
-This project is a deliberately constrained interactive system designed to model the experience of recovery rather than simulate recovery itself.
-It is not a game to be optimised or "won".
-
 
 ---
 
 ## Purpose
 
-This board isn't meant to be efficient or strategic. It's meant to feel like recovery.
+This project is a deliberately constrained interactive system designed to model the experience of recovery rather than simulate recovery itself.
+
+This board isn't meant to be efficient or strategic. It is not a game to be optimised or "won".
 
 You can only move one step at a time. You can't see very far ahead. Sometimes progress reverses or stalls without warning.
 
