@@ -1010,7 +1010,9 @@ function drawHelpOverlay(t) {
   const maxTextWidth = S * 0.75;
   let y = pad + Math.max(16, S * 0.05);
 
-  let titleSize = 20;
+  l// --- Responsive text sizing (stable across devices) ---
+
+let titleSize = 20;
 let bodySize  = 14;
 
 const minTitle = 16;
@@ -1019,17 +1021,26 @@ const minBody  = 11;
 const pad = Math.max(16, S * 0.05);
 const boxH = S - pad * 2;
 
-// Rough height estimate (good enough)
 const { title, lines } = getHelpLines(t);
-const nonEmptyLines = lines.length;
-const estimate = (titleSize * 1.4) + nonEmptyLines * (bodySize + Math.round(bodySize * 0.6)) + 20;
 
-while (estimate > boxH && (titleSize > minTitle || bodySize > minBody)) {
+// Estimate vertical space needed
+let estimatedHeight = 
+  (titleSize * 1.4) +
+  (lines.length * (bodySize + Math.round(bodySize * 0.6))) +
+  20;
+
+// Reduce font sizes only if needed
+while (estimatedHeight > boxH && (titleSize > minTitle || bodySize > minBody)) {
   titleSize = Math.max(minTitle, titleSize - 1);
   bodySize  = Math.max(minBody, bodySize - 1);
+  estimatedHeight =
+    (titleSize * 1.4) +
+    (lines.length * (bodySize + Math.round(bodySize * 0.6))) +
+    20;
 }
 
 const lineGap = Math.round(bodySize * 0.6);
+
 
 
   ctx.globalAlpha = 1;
