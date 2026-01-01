@@ -1,9 +1,11 @@
 # Convalescent Snakes & Ladders Board
 ## Overview & Maintenance Notes
 
-This project is a deliberately constrained interactive system designed to model the experience of recovery rather than simulate recovery itself.
+**This repository is published as a reference artefact. Please fork rather than edit directly.**
 
-**It is not a game to be optimised or "won".**
+This project is a deliberately constrained interactive system designed to model the experience of recovery rather than simulate recovery itself.
+It is not a game to be optimised or "won".
+
 
 ---
 
