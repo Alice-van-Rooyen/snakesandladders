@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: "Convalescent Snakes & Ladders"
+message: "If you use this work in academic or educational contexts, please cite it as below."
+type: software
+authors:
+  - family-names: "van Rooyen"
+    given-names: "Alice"
+version: "1.0.0"
+date-released: 2026-01-01
+url: "https://alice-van-rooyen.github.io/snakesandladders/"
+license: CC-BY-4.0
+abstract: >
+  An interactive, patient-generated board game exploring recovery,
+  uncertainty, and non-linear healing through constrained play mechanics.
