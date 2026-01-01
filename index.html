@@ -790,6 +790,9 @@ function updateSpin(t) {
 
   inputLocked = false;
 
+  // small cooldown to prevent immediate skipping
+  stepLockedUntil = t + STEP_COOLDOWN_MS;
+
   // Arm behaviours on landing
   maybeArmSubstitutionOnLanding(playerSquare, t);
   armWindowOnLanding(playerSquare, t);
