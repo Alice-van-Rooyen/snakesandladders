@@ -108,6 +108,6 @@
   "97":  { "text": "You play the 'I nearly died' card during a vicious round of Uno, your brother plays the +5 card.", "icon": null },
   "98":  { "text": "An acquaintance wants to visit. It's easier to unfriend them than tidy the house.", "icon": null},
   "99":  { "text": "You compare weight loss wattles with a colleague on Ozempic. You're winning.", "icon": null},
-  "100": { "text": "'Early convalescence' is over. Yay?" , "icon": "assets/icons/balloons.svg"}
+  "100": { "text": "'Early convalescence' is over. Hurrah?" , "icon": "assets/icons/balloons.svg"}
   }
 }
