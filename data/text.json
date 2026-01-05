@@ -90,7 +90,7 @@
 
   "81":  { "text": "You think 'maybe I'll go out today'. The **Gods of Convalescence** laugh at your plans.", "icon": null},
   "82":  { "text": "You try to salute a stupid driver and realise your middle finger is now in the target audience for Viagra.", "icon": null},
-  "83":  { "text": "Your body temperature is now in Cryogenic Mode. Walt Disney is your new neighbour.", "icon": "assets/icons/mickey.svg"},
+  "83":  { "text": "Your body temperature is now in Cryogenic Mode.", "icon": "assets/icons/ice.svg"},
   "84":  { "text": "You cry because ... honestly ... you forget why.", "icon": null},
   "85":  { "text": "You spontaneously load and unload the dishwasher in the same 24 hour period. Heroic.", "icon": null},
   "86":  { "text": "You buy groceries, cook them, and clean up all in the same hour. You nap to celebrate.", "icon": null},
