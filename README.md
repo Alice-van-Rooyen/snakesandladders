@@ -51,7 +51,7 @@ These files are designed for adjustment:
 
 ### ⚠️ Edit with care
 
-These files control behaviour and timing:
+This files controls behaviour and timing:
 
 * `index.html`
 
