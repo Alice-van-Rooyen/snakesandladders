@@ -13,16 +13,17 @@
     "Esc   :  closes this help window",
     "M   :  opens a window with the current square's text enlarged",
     "",
-    "Snakes & Ladder squares:  hidden until you land on them, outcome is uncertain.",
     "Hospital pull:  sometimes you are snapped back to the hospital square for a clinic visit.",
     "Recall:  if you have to visit the hospital, press R within a few seconds to return to your most recent square.",
+    "Snakes & Ladder squares:  You'll see!",
     "",
     "",
     "",
     "",
     "",
     "",
-    "© Alice van Rooyen, 2026. Licensed under Creative Commons 4.0. Please attribute if used for teaching or research."
+    "© Alice van Rooyen, 2026. Please attribute if used for teaching or research.",
+    "This work is licensed under a Creative Commons Attribution 4.0 International License (CC BY 4.0)."
   ]
 }
 
