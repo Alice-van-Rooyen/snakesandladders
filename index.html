@@ -21,12 +21,14 @@
       background: #fff;
       border: 5px solid #000;
       box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+      touch-action: manipulation;
+      display: block;
     }
   </style>
 </head>
 
 <body>
-<canvas id="game"></canvas>
+  <canvas id="game"></canvas>
 
 <script type="module">
 /* ===============================
@@ -41,48 +43,349 @@ board.src = "assets/board.png";
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
 
-/* ===============================
-   RENDER CONTROL (NEW)
-=============================== */
-let rafId = null;
-let needsRender = true;
+// Spinner “big overlay” icon when you land on a spinner square
+// Option A: provide multiple variants here; one is chosen at random per landing.
+// If a variant file is missing or fails to load, the game falls back to the default.
+const SPINNER_ICON_DEFAULT = "assets/icons/snakes.svg";
 
-function invalidate() {
-  needsRender = true;
-  if (rafId === null) {
-    rafId = requestAnimationFrame(tick);
+const SPINNER_ICON_PATHS = [
+  "assets/icons/snakes.svg",
+  "assets/icons/snakes_alt1.svg",
+  "assets/icons/snakes_alt2.svg",
+  "assets/icons/snakes_alt3.svg",
+  "assets/icons/snakes_alt4.svg"
+];
+
+
+let playerSquare = 1;
+
+// Visibility / understanding restriction (cipher-only; NO fog overlay)
+const AHEAD = 1;
+const TRAIL_BEHIND = 6;
+let visited = [1];
+
+// Cheat reveal (typing "CHEAT")
+let revealAll = false;
+
+// Flash feedback when cheat toggles
+let cheatFlashUntil = 0;
+const CHEAT_FLASH_MS = 260;
+
+// --- DATA LAYERS ---
+let tileConfig = { defaultTile: "blue", tiles: {}, tileSets: {} }; // data/tiles.json
+let squareData = {};                                               // data/text.json (supports {text, icon})
+let tileBySquare = {};
+
+// --- POPUPS (yesterday behaviour) ---
+// popups.json format: { "36": { "popup": "..." }, ... }
+let popupMap = {};               // raw object map
+let substitutionArmed = null;    // { square, showAt }
+let activeSubSquare = null;      // number|null
+let activeSubText = "";          // string
+const SUB_DELAY_MS = 320;        // delayed text swap
+
+// “Windows” list (squares whose icons hide until you land, then icon disappears and text shows)
+let windowSquares = new Set();      // data/windows.json -> { windows:[...], ... }
+const WINDOW_DELAY_MS = 240;        // delay after landing before swapping icon->text
+let windowArmed = null;             // { square:number, revealAt:number }
+let windowRevealed = null;          // number|null (currently revealed window square)
+
+// Spinners (mechanics)
+let spinnerMap = {};          // { from: [to,to,...] }
+let spinnerSquares = new Set();
+
+// Spinner landing reveal behaviour:
+const SPINNER_REVEAL_MS = 240;       // give reading time before snakes appears
+let spinnerLanding = null;           // { square:number, revealAt:number, revealed:boolean }
+
+// Spin state (actual jump animation)
+let spinActive = false;
+let spinSquare = null;
+let spinStartT = 0;
+let spinDurationMs = 700;
+let pendingJumpTo = null;
+let inputLocked = false;
+
+// Hospital pull + recall
+const HOSPITAL_PULL_CHANCE = 0.03;
+let recallSquare = null;
+let recallExpiresAt = 0;
+const RECALL_WINDOW_MS = 6000;
+
+// Help overlay (JSON-driven)
+let helpOpen = false;
+const HELP_SEEN_KEY = "snakes_help_seen_v1";
+let helpCopy = null; // data/help.json
+
+// Magnifier overlay
+let magnifierOpen = false;
+
+// Tether dynamics
+let stringJolt = 0;
+
+// String styling
+const STRING_COLOR = "rgba(184, 38, 60, 0.55)";
+const STRING_KNOT_COLOR = "rgba(184, 38, 60, 0.85)";
+
+// --- TUNING KNOBS (art-friendly) ---
+let TOKEN_PAD_FRAC = 0.12;         // increase to lift token
+let PIN_PAD_FRAC   = 0.10;         // hospital knot anchor
+let RECALL_LABEL_X_FRAC = 0.14;    // move label left
+let RECALL_LABEL_Y_FRAC = 0.08;    // smaller = lower label
+
+// Input pacing (prevents skipping time-gated mechanics)
+const STEP_COOLDOWN_MS = 180; // try 180–220
+let stepLockedUntil = 0;
+  
+// Image cache
+const imageCache = new Map();
+function getImage(path) {
+  if (!path) return null;
+  if (imageCache.has(path)) return imageCache.get(path);
+  const img = new Image();
+  img.src = path;
+  imageCache.set(path, img);
+  return img;
+}
+
+/* ===============================
+   RESIZE
+=============================== */
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const size = canvas.clientWidth;
+
+  canvas.width = Math.round(size * dpr);
+  canvas.height = Math.round(size * dpr);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true; // SVGs look better with smoothing
+}
+
+/* ===============================
+   GRID MATH
+=============================== */
+function squareToRowCol(n) {
+  const index = n - 1;
+  const rowFromBottom = Math.floor(index / 10);
+  const colInRow = index % 10;
+
+  const row = 9 - rowFromBottom;
+  const col = (rowFromBottom % 2 === 0) ? colInRow : 9 - colInRow;
+
+  return { row, col };
+}
+
+function cellRect(row, col) {
+  const S = canvas.clientWidth;
+  const cell = S / 10;
+  return { x: col * cell, y: row * cell, w: cell, h: cell };
+}
+
+function squareCornerAnchor(n, corner, padFrac) {
+  const { row, col } = squareToRowCol(n);
+  const r = cellRect(row, col);
+  const pad = r.w * padFrac;
+
+  if (corner === "bl") return { x: r.x + pad, y: r.y + r.h - pad, r };
+  return { x: r.x + r.w - pad, y: r.y + r.h - pad, r }; // br
+}
+
+function squareCenter(n) {
+  const { row, col } = squareToRowCol(n);
+  const r = cellRect(row, col);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2, r };
+}
+
+/* ===============================
+   JSON LOADING
+=============================== */
+async function loadTiles() {
+  const res = await fetch("data/tiles.json?v=" + Date.now());
+  const data = await res.json();
+
+  tileConfig = {
+    defaultTile: data.defaultTile || "blue",
+    tiles: data.tiles || {},
+    tileSets: data.tileSets || {}
+  };
+
+  const defaultPath = tileConfig.tiles[tileConfig.defaultTile];
+
+  tileBySquare = {};
+  for (let n = 1; n <= 100; n++) tileBySquare[n] = defaultPath;
+
+  for (const name of Object.keys(tileConfig.tileSets)) {
+    const path = tileConfig.tiles[name];
+    for (const n of (tileConfig.tileSets[name] || [])) {
+      tileBySquare[n] = path;
+    }
+  }
+
+  const uniquePaths = new Set(Object.values(tileBySquare).filter(Boolean));
+  await preloadImages([...uniquePaths]);
+}
+
+async function loadText() {
+  const res = await fetch("data/text.json?v=" + Date.now());
+  const data = await res.json();
+
+  const out = {};
+
+  if (data && typeof data === "object" && data.squares && typeof data.squares === "object") {
+    for (const [k, v] of Object.entries(data.squares)) {
+      if (typeof v === "string") out[k] = { text: v, icon: "" };
+      else if (v && typeof v === "object") {
+        const text = (typeof v.text === "string") ? v.text : "";
+        const icon = (typeof v.icon === "string" && v.icon.trim()) ? v.icon.trim() : "";
+        out[k] = { text, icon };
+      }
+    }
+    squareData = out;
+    return;
+  }
+
+  if (data && typeof data === "object") {
+    for (const [k, v] of Object.entries(data)) {
+      if (typeof v === "string") out[k] = { text: v, icon: "" };
+      else if (v && typeof v === "object") {
+        const text = (typeof v.text === "string") ? v.text : "";
+        const icon = (typeof v.icon === "string" && v.icon.trim()) ? v.icon.trim() : "";
+        out[k] = { text, icon };
+      }
+    }
+  }
+
+  squareData = out;
+}
+
+async function loadPopups() {
+  // Keep raw object; expect entry.popup string
+  try {
+    const res = await fetch("data/popups.json?v=" + Date.now());
+    if (!res.ok) throw new Error("popups.json not ok");
+    const data = await res.json();
+    popupMap = (data && typeof data === "object") ? data : {};
+  } catch {
+    popupMap = {};
   }
 }
 
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    if (rafId !== null) cancelAnimationFrame(rafId);
-    rafId = null;
-  } else {
-    invalidate();
+async function loadJumps() {
+  try {
+    const res = await fetch("data/jumps.json?v=" + Date.now());
+    if (!res.ok) throw new Error("jumps.json not ok");
+    const data = await res.json();
+
+    spinnerMap = {};
+    spinnerSquares = new Set();
+
+    if (data.spinners && typeof data.spinners === "object") {
+      for (const [k, arr] of Object.entries(data.spinners)) {
+        const from = Number(k);
+        if (!Number.isFinite(from) || from < 1 || from > 100) continue;
+
+        const list = (Array.isArray(arr) ? arr : [arr])
+          .map(Number)
+          .filter(to => Number.isFinite(to) && to >= 1 && to <= 100 && to !== from);
+
+        if (!list.length) continue;
+
+        spinnerMap[from] = list;
+        spinnerSquares.add(from);
+      }
+    }
+
+    if (data.jumps && typeof data.jumps === "object") {
+      for (const [k, v] of Object.entries(data.jumps)) {
+        const from = Number(k);
+        const to = Number(v);
+        if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+        if (from < 1 || from > 100 || to < 1 || to > 100) continue;
+        if (from === to) continue;
+
+        if (!spinnerMap[from]) {
+          spinnerMap[from] = [to];
+          spinnerSquares.add(from);
+        }
+      }
+    }
+  } catch {
+    spinnerMap = {};
+    spinnerSquares = new Set();
   }
-});
+}
+
+async function loadHelpCopy() {
+  try {
+    const res = await fetch("data/help.json?v=" + Date.now());
+    if (!res.ok) throw new Error("help.json not ok");
+    helpCopy = await res.json();
+  } catch {
+    helpCopy = null;
+  }
+}
+
+async function loadWindows() {
+  try {
+    const res = await fetch("data/windows.json?v=" + Date.now());
+    if (!res.ok) throw new Error("windows.json not ok");
+    const data = await res.json();
+
+    const arr = Array.isArray(data.windows) ? data.windows : [];
+    windowSquares = new Set(arr.map(Number).filter(n => Number.isFinite(n) && n >= 1 && n <= 100));
+  } catch {
+    windowSquares = new Set();
+  }
+}
+
+function preloadImages(paths) {
+  const promises = paths.map(p => new Promise(resolve => {
+    const img = getImage(p);
+    if (!img) return resolve();
+    if (img.complete && img.naturalWidth > 0) return resolve();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+  }));
+  return Promise.all(promises);
+}
 
 /* ===============================
-   STATE
+   UNDERSTANDING RESTRICTION (cipher-only)
 =============================== */
-let playerSquare = 1;
-let revealAll = false;
-let showHelp = false;
-let showMagnifier = false;
+function recordMove(toSquare) {
+  toSquare = Math.max(1, Math.min(100, toSquare));
+  const step = (toSquare > playerSquare) ? 1 : -1;
 
-let tiles = {};
-let textBySquare = {};
-let popups = {};
-let jumps = {};
-let helpCopy = {};
-let windows = {};
+  while (playerSquare !== toSquare) {
+    playerSquare += step;
+    visited.push(playerSquare);
+  }
 
-/* ===============================
-   SCRAMBLE CACHE (NEW)
-=============================== */
-const scrambleCache = new Map();
+  if (visited.length > 500) visited = visited.slice(-250);
+}
 
+function getVisibleSet() {
+  if (revealAll) {
+    const all = new Set();
+    for (let n = 1; n <= 100; n++) all.add(n);
+    return all;
+  }
+
+  const vis = new Set();
+  vis.add(1);
+  vis.add(playerSquare);
+
+  for (let i = 1; i <= AHEAD; i++) vis.add(Math.min(100, playerSquare + i));
+
+  // breadcrumb trail behind you
+  for (let i = visited.length - 1; i >= 0 && vis.size < (2 + AHEAD + TRAIL_BEHIND); i--) {
+    vis.add(visited[i]);
+  }
+  return vis;
+}
+
+// Deterministic scramble per square (stable per square number)
 function scrambleText(text, seed) {
   let s = seed * 99991;
   const rand = () => (s = (s * 9301 + 49297) % 233280) / 233280;
@@ -94,64 +397,222 @@ function scrambleText(text, seed) {
   }).join("");
 }
 
-function getScrambled(text, n) {
-  const key = `${n}::${text}`;
-  if (!scrambleCache.has(key)) {
-    scrambleCache.set(key, scrambleText(text, n));
+/* ===============================
+   POPUPS / SUBSTITUTION
+=============================== */
+function getSubTextForSquare(n) {
+  const entry = popupMap[String(n)];
+  if (!entry || typeof entry !== "object") return null;
+  const txt = entry.popup;
+  if (typeof txt !== "string" || !txt.trim()) return null;
+  return txt;
+}
+
+function clearActiveSubstitutionIfMoved() {
+  if (activeSubSquare !== null && playerSquare !== activeSubSquare) {
+    activeSubSquare = null;
+    activeSubText = "";
   }
-  return scrambleCache.get(key);
+}
+
+function maybeArmSubstitutionOnLanding(n, tNow) {
+  const txt = getSubTextForSquare(n);
+  if (!txt) return;
+  if (substitutionArmed && substitutionArmed.square === n) return;
+  substitutionArmed = { square: n, showAt: tNow + SUB_DELAY_MS };
+}
+
+function updateSubstitution(t) {
+  clearActiveSubstitutionIfMoved();
+
+  if (!substitutionArmed) return;
+
+  if (playerSquare !== substitutionArmed.square) {
+    substitutionArmed = null;
+    return;
+  }
+
+  if (t >= substitutionArmed.showAt) {
+    const sq = substitutionArmed.square;
+    const txt = getSubTextForSquare(sq);
+
+    if (txt) {
+      activeSubSquare = sq;
+      activeSubText = txt;
+    }
+    substitutionArmed = null;
+  }
+}
+
+function getSquareDisplayText(n) {
+  if (activeSubSquare === n && activeSubText) return activeSubText;
+  const entry = squareData[String(n)] || {};
+  return (typeof entry.text === "string") ? entry.text : "";
 }
 
 /* ===============================
-   RICH TEXT CACHE (NEW)
+   DRAW: TILE + ICON OVERLAY
 =============================== */
-const richLayoutCache = new Map();
+// Icon sizing knobs (contain sizing avoids clipping on non-square viewBoxes)
+let ICON_PAD_FRAC = 0.09;        // smaller pad => bigger icon
+let SPINNER_PAD_FRAC = 0.06;     // spinner takeover icon pad
 
-function layoutRichText(text, maxWidth, fontSize) {
-  ctx.font = `${fontSize}px system-ui`;
-  const words = String(text).split(/\s+/);
-  const lines = [];
-  let line = "";
+function drawTile(tilePath, r) {
+  const img = getImage(tilePath);
+  if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  for (const w of words) {
-    const test = line ? line + " " + w : w;
-    if (ctx.measureText(test).width <= maxWidth) {
-      line = test;
-    } else {
-      if (line) lines.push({ type: "text", text: line });
-      line = w;
-    }
-  }
-  if (line) lines.push({ type: "text", text: line });
-  return lines;
+  const pad = r.w * 0.06;
+  ctx.drawImage(img, r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad);
 }
 
-function getRichLayout(text, maxWidth, cellH) {
-  const key = `${maxWidth}|${cellH}|${text}`;
-  if (richLayoutCache.has(key)) return richLayoutCache.get(key);
+function drawIconContain(iconPath, r, opts = {}) {
+  const img = getImage(iconPath);
+  if (!img || !img.complete || img.naturalWidth === 0) return;
 
-  for (let fontSize = 12; fontSize >= 6; fontSize--) {
-    const lines = layoutRichText(text, maxWidth, fontSize);
-    const lineH = Math.round(fontSize * 1.1);
-    const totalH = lines.length * lineH;
-    if (totalH <= cellH - 12) {
-      const obj = { fontSize, lines, lineH };
-      richLayoutCache.set(key, obj);
-      return obj;
+  const padFrac = (opts.padFrac ?? ICON_PAD_FRAC);
+  const pad = padFrac * r.w;
+
+  const availW = Math.max(1, r.w - 2 * pad);
+  const availH = Math.max(1, r.h - 2 * pad);
+
+  const iw = img.naturalWidth || 1;
+  const ih = img.naturalHeight || 1;
+
+  const scale = Math.min(availW / iw, availH / ih);
+  const dw = iw * scale;
+  const dh = ih * scale;
+
+  const dx = r.x + (r.w - dw) / 2;
+  const dy = r.y + (r.h - dh) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = (opts.alpha ?? 1);
+  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.restore();
+}
+
+/* ===============================
+   WINDOWS (icon-first, then text reveals on landing)
+=============================== */
+function clearWindowIfMoved() {
+  if (windowRevealed !== null && playerSquare !== windowRevealed) windowRevealed = null;
+  if (windowArmed && playerSquare !== windowArmed.square) windowArmed = null;
+}
+
+function armWindowOnLanding(square, tNow) {
+  if (!windowSquares.has(square)) return;
+  windowArmed = { square, revealAt: tNow + WINDOW_DELAY_MS };
+}
+
+function updateWindowReveal(t) {
+  clearWindowIfMoved();
+  if (!windowArmed) return;
+  if (playerSquare !== windowArmed.square) { windowArmed = null; return; }
+
+  if (t >= windowArmed.revealAt) {
+    windowRevealed = windowArmed.square;
+    windowArmed = null;
+  }
+}
+
+function isWindowRevealedForSquare(n) {
+  if (revealAll) return true;
+  return (windowRevealed === n && playerSquare === n);
+}
+
+/* ===============================
+   TEXT: markdown-lite bold (**bold**)
+=============================== */
+function parseBoldRuns(str) {
+  const runs = [];
+  let i = 0;
+  let bold = false;
+
+  while (i < str.length) {
+    const j = str.indexOf("**", i);
+    if (j === -1) {
+      const tail = str.slice(i);
+      if (tail) runs.push({ text: tail, bold });
+      break;
     }
+    const chunk = str.slice(i, j);
+    if (chunk) runs.push({ text: chunk, bold });
+    bold = !bold;
+    i = j + 2;
+  }
+  return runs;
+}
+
+function setFont(fontSizePx, bold) {
+  const weight = bold ? 800 : 400;
+  ctx.font = `${weight} ${fontSizePx}px system-ui`;
+}
+
+function measureRunText(fontSizePx, bold, text) {
+  setFont(fontSizePx, bold);
+  return ctx.measureText(text).width;
+}
+
+function layoutRichText(text, maxWidth, fontSizePx) {
+  const paragraphs = String(text).split("\n");
+  const lines = [];
+
+  for (let p = 0; p < paragraphs.length; p++) {
+    const para = paragraphs[p];
+
+    if (para.trim() === "") {
+      lines.push({ type: "gap" });
+      continue;
+    }
+
+    const runs = parseBoldRuns(para);
+
+    const tokens = [];
+    for (const run of runs) {
+      const parts = run.text.split(" ");
+      for (let k = 0; k < parts.length; k++) {
+        const w = parts[k];
+        if (w === "" && parts.length > 1) continue;
+        tokens.push({ text: w, bold: run.bold, isSpace: false });
+        if (k < parts.length - 1) tokens.push({ text: " ", bold: run.bold, isSpace: true });
+      }
+    }
+
+    let current = [];
+    let currentW = 0;
+
+    for (const tok of tokens) {
+      const w = measureRunText(fontSizePx, tok.bold, tok.text);
+
+      if (current.length === 0 && tok.isSpace) continue;
+
+      if (currentW + w > maxWidth && current.length > 0) {
+        while (current.length && current[current.length - 1].isSpace) current.pop();
+        lines.push({ type: "line", runs: current });
+
+        current = [];
+        currentW = 0;
+
+        if (tok.isSpace) continue;
+      }
+
+      current.push(tok);
+      currentW += w;
+    }
+
+    while (current.length && current[current.length - 1].isSpace) current.pop();
+    if (current.length) lines.push({ type: "line", runs: current });
+
+    if (p < paragraphs.length - 1) lines.push({ type: "gap" });
   }
 
-  const fallback = {
-    fontSize: 6,
-    lines: layoutRichText(text, maxWidth, 6),
-    lineH: 7
-  };
-  richLayoutCache.set(key, fallback);
-  return fallback;
+  while (lines.length && lines[lines.length - 1].type === "gap") lines.pop();
+  return lines;
 }
 
 function drawRichText(text, r, alpha = 1) {
   if (!text) return;
+
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = "#000";
@@ -160,125 +621,901 @@ function drawRichText(text, r, alpha = 1) {
 
   const padding = 6;
   const maxWidth = r.w - padding * 2;
-  const layout = getRichLayout(text, maxWidth, r.h);
 
-  ctx.font = `${layout.fontSize}px system-ui`;
-  let y = r.y + padding;
-  for (const line of layout.lines) {
-    ctx.fillText(line.text, r.x + padding, y);
-    y += layout.lineH;
+  let fontSize = 12;
+  while (fontSize >= 6) {
+    const lines = layoutRichText(text, maxWidth, fontSize);
+
+    const lineH = Math.round(fontSize * 1.10);
+    const gapH  = Math.round(lineH * 0.18);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+
+    if (blockH <= r.h - padding * 2) {
+      let y = r.y + (r.h - blockH) / 2;
+      const cx = r.x + r.w / 2;
+
+      for (const item of lines) {
+        if (item.type === "gap") { y += gapH; continue; }
+
+        let lineW = 0;
+        for (const run of item.runs) lineW += measureRunText(fontSize, run.bold, run.text);
+
+        let x = cx - lineW / 2;
+
+        for (const run of item.runs) {
+          setFont(fontSize, run.bold);
+          ctx.fillText(run.text, x, y);
+          x += ctx.measureText(run.text).width;
+        }
+
+        y += lineH;
+      }
+
+      ctx.restore();
+      return;
+    }
+
+    fontSize--;
   }
+
   ctx.restore();
 }
 
 /* ===============================
-   STATIC TETHER (SIMPLIFIED)
+   SPINNERS (land → pause → snakes icon → next keypress flings you)
 =============================== */
-function drawTetherString() {
-  const a = squareCornerAnchor(1, "br", 0.15);
-  const b = tokenAnchor();
+function randInt(maxExclusive) {
+  if (maxExclusive <= 1) return 0;
+  const c = globalThis.crypto;
+  if (c && c.getRandomValues) {
+    const buf = new Uint32Array(1);
+    c.getRandomValues(buf);
+    return buf[0] % maxExclusive;
+  }
+  return Math.floor(Math.random() * maxExclusive);
+}
+
+function chooseSpinnerDestination(fromSquare) {
+  const options = spinnerMap[fromSquare];
+  if (!options || options.length === 0) return null;
+  return options[randInt(options.length)];
+}
+
+
+function chooseSpinnerIcon() {
+  // Prefer icons that have successfully loaded; otherwise fall back to default.
+  const loaded = SPINNER_ICON_PATHS.filter(p => {
+    const img = getImage(p);
+    return img && img.complete && img.naturalWidth > 0;
+  });
+  const pool = loaded.length ? loaded : [SPINNER_ICON_DEFAULT];
+  return pool[randInt(pool.length)];
+}
+
+function armSpinnerLanding(square, tNow) {
+  if (revealAll) return;
+  if (!spinnerSquares.has(square)) return;
+  if (spinActive) return;
+
+  spinnerLanding = { square, revealAt: tNow + SPINNER_REVEAL_MS, revealed: false, iconPath: chooseSpinnerIcon() };
+}
+
+function updateSpinnerLanding(t) {
+  if (!spinnerLanding) return;
+
+  if (playerSquare !== spinnerLanding.square) {
+    spinnerLanding = null;
+    return;
+  }
+
+  if (!spinnerLanding.revealed && t >= spinnerLanding.revealAt) {
+    spinnerLanding.revealed = true;
+  }
+}
+
+function spinnerReadyOnCurrentSquare() {
+  return (
+    spinnerLanding &&
+    spinnerLanding.square === playerSquare &&
+    spinnerLanding.revealed === true &&
+    !spinActive &&
+    !revealAll
+  );
+}
+
+function triggerSpinnerJump(tNow) {
+  if (!spinnerReadyOnCurrentSquare()) return false;
+
+  const from = playerSquare;
+  const to = chooseSpinnerDestination(from);
+  if (!to || to === from) {
+    spinnerLanding = null;
+    return false;
+  }
+
+  spinActive = true;
+  spinSquare = from;
+  spinStartT = tNow;
+  pendingJumpTo = to;
+  inputLocked = true;
+
+  spinnerLanding = null;
+  return true;
+}
+
+function drawSpinnerOverSquare(n, t) {
+  if (!spinActive || spinSquare !== n) return;
+
+  const { x, y, r } = squareCenter(n);
+  const radius = r.w * 0.22;
+
+  const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+  const rot = (t - spinStartT) * 0.018;
 
   ctx.save();
-  ctx.strokeStyle = "#333";
-  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.14;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  ctx.lineWidth = Math.max(2, r.w * 0.05);
+  ctx.strokeStyle = "rgba(0,0,0,0.70)";
+  ctx.lineCap = "round";
+
+  const arcSpan = (Math.PI * 1.6) * (0.75 + 0.25 * (1 - p));
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, arcSpan);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function updateSpin(t) {
+  if (!spinActive) return;
+
+  const elapsed = t - spinStartT;
+  if (elapsed < spinDurationMs) return;
+
+  spinActive = false;
+  const to = pendingJumpTo;
+  pendingJumpTo = null;
+
+  // IMPORTANT: use recordMove so visibility trail updates properly
+  recordMove(to);
+  stringJolt = Math.min(1.2, stringJolt + 0.45);
+
+  inputLocked = false;
+
+  // small cooldown to prevent immediate skipping
+  stepLockedUntil = t + STEP_COOLDOWN_MS;
+
+  // Arm behaviours on landing
+  maybeArmSubstitutionOnLanding(playerSquare, t);
+  armWindowOnLanding(playerSquare, t);
+  armSpinnerLanding(playerSquare, t);
+}
+
+/* ===============================
+   HOSPITAL PULL + RECALL + HOME
+=============================== */
+function beginReturnToHospital(tNow, setRecall) {
+  if (playerSquare !== 1 && setRecall) {
+    recallSquare = playerSquare;
+    recallExpiresAt = tNow + RECALL_WINDOW_MS;
+  }
+
+  spinActive = true;
+  spinSquare = playerSquare;
+  spinStartT = tNow;
+  pendingJumpTo = 1;
+  inputLocked = true;
+
+  stringJolt = Math.min(1.2, stringJolt + 0.55);
+}
+
+function hospitalPullMaybe(tNow) {
+  if (revealAll) return false;
+  if (spinActive) return false;
+  if (playerSquare === 1) return false;
+  if (Math.random() >= HOSPITAL_PULL_CHANCE) return false;
+
+  beginReturnToHospital(tNow, true);
+  return true;
+}
+
+function goHome(tNow) {
+  if (inputLocked) return;
+  if (playerSquare === 1) return;
+  beginReturnToHospital(tNow, true);
+}
+
+function canRecall(tNow) {
+  if (!recallSquare) return false;
+  if (tNow > recallExpiresAt) return false;
+  if (playerSquare !== 1) return false;
+  if (inputLocked) return false;
+  if (revealAll) return false;
+  return true;
+}
+
+function attemptRecall(tNow) {
+  if (!canRecall(tNow)) return;
+
+  const target = recallSquare;
+  recallSquare = null;
+  recallExpiresAt = 0;
+
+  recordMove(target);
+  stringJolt = Math.min(1.0, stringJolt + 0.35);
+
+  maybeArmSubstitutionOnLanding(playerSquare, tNow);
+  armWindowOnLanding(playerSquare, tNow);
+  armSpinnerLanding(playerSquare, tNow);
+}
+
+/* ===============================
+   TOKEN (bottom-right)
+=============================== */
+function tokenAnchor(t) {
+  const a = squareCornerAnchor(playerSquare, "br", TOKEN_PAD_FRAC);
+  let cx = a.x;
+  let cy = a.y;
+  const r = a.r;
+
+  if (spinActive) {
+    const p = Math.max(0, Math.min(1, (t - spinStartT) / spinDurationMs));
+    const amp = r.w * 0.06 * (1 - p);
+    cx += Math.sin((t - spinStartT) * 0.05) * amp;
+    cy += Math.cos((t - spinStartT) * 0.06) * amp;
+  }
+
+  return { x: cx, y: cy, r };
+}
+
+function drawToken(t) {
+  const { x: cx, y: cy, r } = tokenAnchor(t);
+  const size = r.w * 0.45;
+
+  if (tokenImg.complete && tokenImg.naturalWidth > 0) {
+    ctx.drawImage(tokenImg, cx - size / 2, cy - size / 2, size, size);
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = "red";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+/* ===============================
+   TETHER STRING
+=============================== */
+function drawTetherString(t) {
+  const a = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
+  const b = tokenAnchor(t);
+
+  const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
+  const segs = 14;
+
+  ctx.save();
+  ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0026);
+  ctx.strokeStyle = STRING_COLOR;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
+
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+
+  const px = -dy / len;
+  const py = dx / len;
+
+  const baseFreq = 6 + Math.min(10, len / 120);
+  const phase = (t * 0.004) + (len * 0.002);
+
+  for (let i = 1; i <= segs; i++) {
+    const u = i / segs;
+    const ease = Math.sin(Math.PI * u);
+
+    const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+    const wy = py * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
+
+    const x = a.x + dx * u + wx;
+    const y = a.y + dy * u + wy;
+    ctx.lineTo(x, y);
+  }
+
   ctx.stroke();
+
+  ctx.fillStyle = STRING_KNOT_COLOR;
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, Math.max(2, canvas.clientWidth * 0.0062), 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
 }
 
 /* ===============================
-   DRAW
+   HELP OVERLAY
 =============================== */
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(board, 0, 0, canvas.width, canvas.height);
-
-  drawTetherString();
-  drawToken();
-
-  for (let n = 1; n <= 100; n++) {
-    const r = tileRect(n);
-    const text = textBySquare[n];
-    if (!text) continue;
-
-    const visible = revealAll || n === playerSquare;
-    const display = visible ? text : getScrambled(text, n);
-    drawRichText(display, r);
+function toggleHelp(open = !helpOpen) {
+  helpOpen = !!open;
+  if (helpOpen) {
+    try { localStorage.setItem(HELP_SEEN_KEY, "1"); } catch {}
   }
+}
+
+function getHelpLines(tNow) {
+  const secs = Math.round(RECALL_WINDOW_MS / 1000);
+
+  if (helpCopy && Array.isArray(helpCopy.lines)) {
+    const title = helpCopy.title || "Convalescent Snakes & Ladders — controls";
+    const lines = helpCopy.lines.map(s => String(s).replaceAll("{RECALL_SECONDS}", String(secs)));
+    return { title, lines };
+  }
+
+  return {
+    title: "Convalescent Snakes & Ladders — controls",
+    lines: [
+      "→ / ↑  : forward 1 square",
+      "← / ↓  : back 1 square",
+      "Space  : forward 1 square",
+      "Home / 1 : return to square 1",
+      "M : magnify current square",
+      "",
+      "Understanding restriction: most squares show scrambled text until you reach them.",
+      "Spinner squares: land → pause → snakes icon appears → next move flings you.",
+      "Hospital pull: sometimes you are snapped back to square 1.",
+      `Recall: if pulled back, press R within ${secs}s to return.`,
+      "",
+      "Some squares hide their doodle when you land, so the text can be read.",
+      "Type CHEAT : toggle “study mode” (reveals board + disables spinners + disables hospital pull)",
+      "Esc : close help / close magnifier / turn off cheat mode",
+      "",
+      "? : toggle this help"
+    ]
+  };
+}
+
+function drawHelpOverlay(t) {
+  if (!helpOpen) return;
+
+  const S = canvas.clientWidth;
+
+  // Panel geometry
+  const pad = Math.max(16, S * 0.05);
+  const boxW = S - pad * 2;
+  const boxH = S - pad * 2;
+
+  ctx.save();
+
+  // Dim background
+  ctx.globalAlpha = 0.62;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+
+  // Panel background
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(pad, pad, boxW, boxH);
+
+  // Panel border
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.65)";
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeRect(pad, pad, boxW, boxH);
+
+  // Copy
+  const { title, lines } = getHelpLines(t);
+
+  // Text layout anchors
+  const innerPad = Math.max(16, S * 0.05);
+  const left = pad + innerPad;
+  const maxTextWidth = boxW - innerPad * 2;
+  let y = pad + innerPad;
+
+  // --- Responsive text sizing (prefer consistent sizes; shrink only if needed) ---
+  let titleSize = 20;
+  let bodySize = 14;
+
+  const minTitle = 16;
+  const minBody = 11;
+
+  const lineGapFor = (bs) => Math.round(bs * 0.6);
+
+  // Estimate height needed (good-enough; prevents overflow on small screens)
+  const estimateHeight = (ts, bs) => {
+    const lineGap = lineGapFor(bs);
+    const titleH = ts * 1.4;
+    const lineH = bs + lineGap;
+    // Add a bit of padding at bottom
+    return titleH + (lines.length * lineH) + 12;
+  };
+
+  while (estimateHeight(titleSize, bodySize) > (boxH - innerPad * 1.2) &&
+         (titleSize > minTitle || bodySize > minBody)) {
+    titleSize = Math.max(minTitle, titleSize - 1);
+    bodySize = Math.max(minBody, bodySize - 1);
+  }
+
+  const lineGap = lineGapFor(bodySize);
+
+  // Draw title
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(0,0,0,0.92)";
+  ctx.font = `700 ${titleSize}px system-ui`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(title, left, y, maxTextWidth);
+  y += titleSize * 1.4;
+
+  // Draw lines
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.font = `${bodySize}px system-ui`;
+
+  for (const line of lines) {
+    if (line === "") { y += bodySize * 0.9; continue; }
+    ctx.fillText(line, left, y, maxTextWidth);
+    y += bodySize + lineGap;
+  }
+
+  // Recall hint
+  if (canRecall(t)) {
+    y += bodySize * 0.6;
+    ctx.fillStyle = "rgba(0,0,0,0.9)";
+    ctx.font = `700 ${bodySize}px system-ui`;
+    ctx.fillText("↩ Recall available now: press R.", left, y, maxTextWidth);
+  }
+
+  ctx.restore();
+}
+
+
+/* ===============================
+   MAGNIFIER
+=============================== */
+function toggleMagnifier(open = !magnifierOpen) {
+  magnifierOpen = !!open;
+}
+
+function drawRichTextBox(text, box, opts = {}) {
+  const { alpha = 1, startFont = 26, minFont = 12, padding = 14 } = opts;
+  if (!text) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(0,0,0,0.92)";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  const maxWidth = box.w - padding * 2;
+
+  let chosen = null;
+  for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
+    const lines = layoutRichText(text, maxWidth, fontSize);
+    const lineH = Math.round(fontSize * 1.2);
+    const gapH  = Math.round(lineH * 0.45);
+    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+    if (blockH <= box.h - padding * 2) { chosen = { fontSize, lines, lineH, gapH }; break; }
+  }
+  if (!chosen) {
+    const fontSize = minFont;
+    const lines = layoutRichText(text, maxWidth, fontSize);
+    chosen = { fontSize, lines, lineH: Math.round(fontSize * 1.2), gapH: Math.round(Math.round(fontSize * 1.2) * 0.45) };
+  }
+
+  const { fontSize, lines, lineH, gapH } = chosen;
+
+  ctx.beginPath();
+  ctx.rect(box.x + padding, box.y + padding, box.w - 2 * padding, box.h - 2 * padding);
+  ctx.clip();
+
+  let y = box.y + padding;
+  for (const item of lines) {
+    if (item.type === "gap") { y += gapH; continue; }
+    let x = box.x + padding;
+    for (const run of item.runs) {
+      setFont(fontSize, run.bold);
+      ctx.fillText(run.text, x, y);
+      x += ctx.measureText(run.text).width;
+    }
+    y += lineH;
+  }
+
+  ctx.restore();
+}
+
+function drawMagnifierOverlay(t) {
+  if (!magnifierOpen) return;
+
+  const S = canvas.clientWidth;
+  const pad = Math.max(14, S * 0.05);
+
+  const panelH = Math.max(140, S * 0.34);
+  const panelW = S - pad * 2;
+  const x = pad;
+  const y = S - pad - panelH;
+
+  const text = getSquareDisplayText(playerSquare) || "(no text for this square)";
+
+  ctx.save();
+
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, S, S);
+
+  ctx.globalAlpha = 0.96;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x, y, panelW, panelH);
+
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeRect(x, y, panelW, panelH);
+
+  const headerSize = Math.max(12, Math.round(S * 0.022));
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.font = `700 ${headerSize}px system-ui`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.fillText(`Square ${playerSquare}`, x + 14, y + 10);
+
+  const bodyBox = {
+    x: x + 10,
+    y: y + 10 + headerSize * 1.4,
+    w: panelW - 20,
+    h: panelH - (10 + headerSize * 1.4) - 24
+  };
+
+  drawRichTextBox(text, bodyBox, {
+    startFont: Math.max(18, Math.round(S * 0.045)),
+    minFont: Math.max(12, Math.round(S * 0.03)),
+    padding: 14,
+    alpha: 1
+  });
+
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.font = `600 ${headerSize}px system-ui`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("M or Esc to close", x + panelW - 14, y + panelH - 10);
+
+  ctx.restore();
 }
 
 /* ===============================
-   RAF TICK (NO IDLE LOOP)
+   MAIN DRAW (no fog, cipher-only restriction)
 =============================== */
-function tick() {
-  if (needsRender) {
-    draw();
-    needsRender = false;
+function draw(t) {
+  const S = canvas.clientWidth;
+  ctx.clearRect(0, 0, S, S);
+
+  if (board.complete && board.naturalWidth > 0) ctx.drawImage(board, 0, 0, S, S);
+
+  const visible = getVisibleSet();
+  const defaultTilePath = tileConfig.tiles[tileConfig.defaultTile] || "";
+
+  for (let n = 1; n <= 100; n++) {
+    const { row, col } = squareToRowCol(n);
+    const rect = cellRect(row, col);
+
+    const isVis = visible.has(n) || n === 1;
+
+    // Spinner takeover (only on current square, after delay)
+    const spinnerShowing =
+      spinnerLanding &&
+      spinnerLanding.square === n &&
+      spinnerLanding.revealed === true &&
+      playerSquare === n &&
+      !spinActive &&
+      !revealAll;
+
+    if (spinnerShowing) {
+      drawIconContain((spinnerLanding && spinnerLanding.iconPath) ? spinnerLanding.iconPath : SPINNER_ICON_DEFAULT, rect, { padFrac: SPINNER_PAD_FRAC, alpha: 1 });
+      continue;
+    }
+
+    // Background tile (ALWAYS from tiles.json)
+    let bgPath = tileBySquare[n] || defaultTilePath || "";
+
+    // Extra behaviour (kept): in cheat mode, window squares revert to default blue (for readability)
+    if (revealAll && windowSquares.has(n) && defaultTilePath) bgPath = defaultTilePath;
+
+    drawTile(bgPath, rect);
+
+    // Icon overlay
+    const entry = squareData[String(n)] || {};
+    const iconPath = (typeof entry.icon === "string" && entry.icon.trim()) ? entry.icon.trim() : "";
+    const hasIcon = !!iconPath;
+
+    const isWindow = windowSquares.has(n);
+    const windowRevealedNow = isWindowRevealedForSquare(n);
+
+    // Popup squares (speech windows): identified by popups.json having {popup:"..."}
+    const hasPopup = !!getSubTextForSquare(n);
+
+    // POPUP squares: icon always stays if present (text swaps underneath after delay)
+    // Window squares: show icon until revealed; then hide icon & show text
+    // Other icon squares: show icon until you land; landing swaps to text (icon hidden)
+    const showIcon =
+  hasIcon &&
+  !revealAll &&                 // ← CHEAT mode: text-only layer (no icons)
+  (
+    hasPopup ? true :
+    (isWindow ? !windowRevealedNow :
+      (playerSquare !== n)       // (revealAll removed)
+    )
+  );
+
+
+    if (showIcon) {
+      drawIconContain(iconPath, rect, { padFrac: ICON_PAD_FRAC, alpha: 1 });
+    }
+
+    // Text layer
+    const text = getSquareDisplayText(n);
+
+    // Allow text:
+    // - Popup squares: ALWAYS (base text on load; swaps after landing delay)
+    // - Window squares: only when revealed
+    // - Other icon squares: only when standing on it (or revealAll)
+    // - Plain squares: always
+    const allowText =
+      !!text &&
+      (
+        hasPopup ? true :
+        (isWindow ? windowRevealedNow :
+          (hasIcon ? (revealAll || playerSquare === n) : true)
+        )
+      );
+
+    if (text && allowText) {
+      // cipher restriction: if not visible, show scrambled version (no fog veil)
+      const displayText = (isVis || revealAll) ? text : scrambleText(text, n);
+      drawRichText(displayText, rect, 1);
+    }
+
+    drawSpinnerOverSquare(n, t);
   }
-  rafId = null;
+
+  drawTetherString(t);
+  drawToken(t);
+
+  // Recall hint on square 1
+  if (canRecall(t)) {
+    const pin = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
+    const x = pin.x - pin.r.w * RECALL_LABEL_X_FRAC;
+    const y = pin.y - pin.r.w * RECALL_LABEL_Y_FRAC;
+    const fontPx = Math.max(14, Math.round(pin.r.w * 0.24));
+
+    ctx.save();
+    ctx.font = `800 ${fontPx}px system-ui`;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "bottom";
+
+    ctx.lineWidth = Math.max(3, Math.round(fontPx * 0.18));
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText("↩ R", x, y);
+
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.fillText("↩ R", x, y);
+    ctx.restore();
+  }
+
+  // Flash feedback on CHEAT toggle
+  if (t < cheatFlashUntil) {
+    const remaining = cheatFlashUntil - t;
+    const a = Math.max(0, Math.min(1, remaining / CHEAT_FLASH_MS));
+    ctx.save();
+    ctx.globalAlpha = 0.42 * a;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, S, S);
+    ctx.restore();
+  }
+
+  drawMagnifierOverlay(t);
+  drawHelpOverlay(t);
 }
+
+/* ===============================
+   MOVEMENT (1 square at a time)
+=============================== */
+function attemptStep(delta, tNow) {
+  if (inputLocked) return;
+  if (tNow < stepLockedUntil) return;
+
+  // Spinner: if ready, next movement key triggers the jump instead of stepping.
+  if (triggerSpinnerJump(tNow)) return;
+
+  const next = Math.max(1, Math.min(100, playerSquare + delta));
+  if (next === playerSquare) return;
+
+  recordMove(next);
+  stepLockedUntil = tNow + STEP_COOLDOWN_MS; // <-- key line
+
+  stringJolt = Math.min(1.0, stringJolt + 0.25);
+
+  // Arm behaviours on landing
+  maybeArmSubstitutionOnLanding(playerSquare, tNow);
+  armWindowOnLanding(playerSquare, tNow);
+  armSpinnerLanding(playerSquare, tNow);
+
+  hospitalPullMaybe(tNow);
+}
+
 
 /* ===============================
    INPUT
 =============================== */
-window.addEventListener("keydown", e => {
-  if (e.key === "ArrowRight") {
-    playerSquare = Math.min(100, playerSquare + 1);
-    invalidate();
+// CHEAT typing: type "CHEAT" quickly
+let cheatBuffer = "";
+let cheatLastT = 0;
+const CHEAT_TIMEOUT_MS = 700;
+
+function pushCheatChar(ch, tNow) {
+  if (tNow - cheatLastT > CHEAT_TIMEOUT_MS) cheatBuffer = "";
+  cheatLastT = tNow;
+
+  cheatBuffer = (cheatBuffer + ch).slice(-5);
+
+  if (cheatBuffer === "cheat") {
+    revealAll = !revealAll;
+    cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
+    cheatBuffer = "";
+    return true;
   }
+  return false;
+}
+
+document.addEventListener("keydown", (e) => {
+  const tNow = performance.now();
+
+  const code = e.code || "";
+  const rawKey = e.key || "";
+  const key = String(rawKey || "").toLowerCase();
+
+  // CHEAT typing has priority (no modifiers)
+  if (key.length === 1 && "cheat".includes(key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const toggled = pushCheatChar(key, tNow);
+    if (toggled) { e.preventDefault(); return; }
+  }
+
+  const isHelp = (key === "?" || (key === "/" && e.shiftKey));
+  const isEsc = (code === "Escape" || key === "escape");
+  const isMagnify = (key === "m");
+  const isRecall = (key === "r");
+  const isHome = (code === "Home" || key === "home" || key === "1");
+
+  const isSpace = (code === "Space") || (rawKey === " ") || (rawKey === "Spacebar");
+  const isForward =
+    (code === "ArrowRight") || (code === "ArrowUp") ||
+    (rawKey === "ArrowRight") || (rawKey === "ArrowUp");
+
+  const isBack =
+    (code === "ArrowLeft") || (code === "ArrowDown") ||
+    (rawKey === "ArrowLeft") || (rawKey === "ArrowDown");
+
+  // If magnifier is open, first close it
+  const isMovementKey = isSpace || isForward || isBack || isHome || isRecall;
+  if (magnifierOpen) {
+    if (isEsc || isMagnify || isHelp || isMovementKey) {
+      e.preventDefault();
+      toggleMagnifier(false);
+      return;
+    }
+  }
+
+  if (!(isHelp || isEsc || isMagnify || isRecall || isHome || isSpace || isForward || isBack)) return;
+  e.preventDefault();
+
+  if (isHelp) { toggleHelp(!helpOpen); return; }
+  if (isMagnify) { toggleMagnifier(!magnifierOpen); return; }
+
+  if (isEsc)  {
+    if (helpOpen) { toggleHelp(false); return; }
+    if (magnifierOpen) { toggleMagnifier(false); return; }
+    if (revealAll) { revealAll = false; return; }
+    return;
+  }
+
+  if (helpOpen) return;
+
+  if (isHome) { goHome(tNow); return; }
+  if (isRecall) { attemptRecall(tNow); return; }
+
+  if (isBack) attemptStep(-1, tNow);
+  else attemptStep(+1, tNow);
+});
+
+window.addEventListener("blur", () => {
+  cheatBuffer = "";
+  cheatLastT = 0;
 });
 
 /* ===============================
-   CANVAS SIZE
+   TICK / LOOP
 =============================== */
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  const size = Math.min(window.innerWidth, window.innerHeight) * 0.9;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+let rafStarted = false;
+function tick(t) {
+  stringJolt *= 0.92;
+  if (stringJolt < 0.001) stringJolt = 0;
 
-  richLayoutCache.clear();
-  invalidate();
-}
+  updateWindowReveal(t);
+  updateSpinnerLanding(t);
+  updateSpin(t);
+  updateSubstitution(t);
 
-window.addEventListener("resize", resizeCanvas);
+  draw(t);
 
-/* ===============================
-   HELPERS (UNCHANGED ASSUMPTIONS)
-=============================== */
-function tileRect(n) {
-  const s = canvas.width / 10;
-  const row = Math.floor((n - 1) / 10);
-  const col = (n - 1) % 10;
-  return { x: col * s, y: (9 - row) * s, w: s, h: s };
-}
-
-function squareCornerAnchor(n, corner, frac) {
-  const r = tileRect(n);
-  return {
-    x: r.x + r.w,
-    y: r.y + r.h
-  };
-}
-
-function tokenAnchor() {
-  const r = tileRect(playerSquare);
-  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-}
-
-function drawToken() {
-  const a = tokenAnchor();
-  ctx.drawImage(tokenImg, a.x - 12, a.y - 12, 24, 24);
+  requestAnimationFrame(tick);
 }
 
 /* ===============================
    START
 =============================== */
-resizeCanvas();
-invalidate();
+function maybeOpenHelpOnFirstVisit() {
+  try {
+    const seen = localStorage.getItem(HELP_SEEN_KEY);
+    if (!seen) toggleHelp(true);
+  } catch {
+    toggleHelp(true);
+  }
+}
+
+let started = false;
+async function start() {
+  if (started) return;
+  started = true;
+
+  resizeCanvas();
+
+  try {
+    await Promise.all([
+      loadTiles(),
+      loadText(),
+      loadPopups(),
+      loadJumps(),
+      loadHelpCopy(),
+      loadWindows()
+    ]);
+  } catch (err) {
+    console.error("data failed to load:", err);
+  }
+
+  // Arm behaviours on starting square
+  const now = performance.now();
+  maybeArmSubstitutionOnLanding(playerSquare, now);
+  armWindowOnLanding(playerSquare, now);
+  armSpinnerLanding(playerSquare, now);
+
+  maybeOpenHelpOnFirstVisit();
+
+  if (!rafStarted) {
+    rafStarted = true;
+    requestAnimationFrame(tick);
+  }
+}
+
+// Start once: if the board loads, great; if it fails, also start; if it's already cached, start immediately.
+board.onload = () => start();
+board.onerror = () => start();
+if (board.complete) start();
+
+window.addEventListener("resize", () => resizeCanvas());
 </script>
 </body>
 </html>
