@@ -40,8 +40,16 @@ const ctx = canvas.getContext("2d");
 const board = new Image();
 board.src = "assets/board.png";
 
+// With render-on-demand, we must redraw when async assets finish loading.
+// (Previously the always-on RAF masked this.)
+board.onload = () => invalidate();
+board.onerror = () => invalidate();
+
 const tokenImg = new Image();
 tokenImg.src = "assets/token.png";
+
+tokenImg.onload = () => invalidate();
+tokenImg.onerror = () => invalidate();
 
 // Spinner “big overlay” icon when you land on a spinner square
 // Option A: provide multiple variants here; one is chosen at random per landing.
@@ -139,10 +147,14 @@ let stepLockedUntil = 0;
   
 // Image cache
 const imageCache = new Map();
+const loadedImages = new Set();
 function getImage(path) {
   if (!path) return null;
   if (imageCache.has(path)) return imageCache.get(path);
   const img = new Image();
+  // When running render-on-demand, asset loads must explicitly trigger a redraw.
+  img.onload = () => { loadedImages.add(path); invalidate(); };
+  img.onerror = () => { invalidate(); };
   img.src = path;
   imageCache.set(path, img);
   return img;
@@ -784,10 +796,10 @@ function chooseSpinnerDestination(fromSquare) {
 
 function chooseSpinnerIcon() {
   // Prefer icons that have successfully loaded; otherwise fall back to default.
-  const loaded = SPINNER_ICON_PATHS.filter(p => {
-    const img = getImage(p);
-    return img && img.complete && img.naturalWidth > 0;
-  });
+  // IMPORTANT: with render-on-demand, icons may *not* be loaded at selection time.
+  // We track successful loads and only randomise across those. If nothing is loaded
+  // yet (first ever land), we pick the default and a redraw will occur on load.
+  const loaded = SPINNER_ICON_PATHS.filter(p => loadedImages.has(p));
   const pool = loaded.length ? loaded : [SPINNER_ICON_DEFAULT];
   return pool[randInt(pool.length)];
 }
