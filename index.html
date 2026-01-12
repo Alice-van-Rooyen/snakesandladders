@@ -346,13 +346,21 @@ async function loadJumps() {
     if (data.jumps && typeof data.jumps === "object") {
       for (const [k, v] of Object.entries(data.jumps)) {
         const from = Number(k);
-        const to = Number(v);
-        if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
-        if (from < 1 || from > 100 || to < 1 || to > 100) continue;
-        if (from === to) continue;
+        if (!Number.isFinite(from) || from < 1 || from > 100) continue;
+
+        // Support either:
+        //  - "jumps": { "12": 34 }
+        //  - "jumps": { "12": [34, 56, ...] }
+        // (Some builds use jumps.json as the primary spinner destination map.)
+        const rawList = Array.isArray(v) ? v : [v];
+        const list = rawList
+          .map(Number)
+          .filter(to => Number.isFinite(to) && to >= 1 && to <= 100 && to !== from);
+
+        if (!list.length) continue;
 
         if (!spinnerMap[from]) {
-          spinnerMap[from] = [to];
+          spinnerMap[from] = list;
           spinnerSquares.add(from);
         }
       }
@@ -799,9 +807,11 @@ function chooseSpinnerDestination(fromSquare) {
 
 function chooseSpinnerIcon() {
   // Prefer icons that have successfully loaded; otherwise fall back to default.
-  // IMPORTANT: with render-on-demand, icons may *not* be loaded at selection time.
-  // We track successful loads and only randomise across those. If nothing is loaded
-  // yet (first ever land), we pick the default and a redraw will occur on load.
+  // With render-on-demand, we must also *kick off* async loads explicitly (the old
+  // always-on RAF used to mask this). So: request images, then randomise across
+  // the ones that are already loaded.
+  for (const p of SPINNER_ICON_PATHS) getImage(p);
+
   const loaded = SPINNER_ICON_PATHS.filter(p => loadedImages.has(p));
   const pool = loaded.length ? loaded : [SPINNER_ICON_DEFAULT];
   return pool[randInt(pool.length)];
