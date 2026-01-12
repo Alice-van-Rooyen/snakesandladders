@@ -49,7 +49,7 @@ The delay between landing on a spinner and the snake icon appearing:
 const SPINNER_REVEAL_MS = 340;
 ```
 
-**Important behavioural note (restored constraint):**
+**Important behavioural note (constraint):**
 During this reveal delay, movement input is intentionally blocked so you cannot “step over” the spinner square. If you change `SPINNER_REVEAL_MS`, you are also changing how long the player is *held* before the spinner becomes visible.
 
 **Guidance:**
@@ -73,9 +73,9 @@ Higher values push the token inward; lower values let it hug the corner.
 
 **Safe range:** `0.10 – 0.16`
 
-## 5. Tether / String Behaviour (now static)
+## 5. Tether / String Behaviour
 
-The tether “string” between home and token is now rendered as **static geometry**.
+The tether “string” between home and token is rendered as **static geometry**.
 
 **Key controls:**
 ```javascript
@@ -86,11 +86,7 @@ const STRING_COLOR = "rgba(184, 38, 60, 0.55)";
 - Colour / alpha (`STRING_COLOR`)
 - Stroke width (where the canvas line width is set)
 
-**What no longer applies:**
-- Any description of wobble / impulse / damping. There is no time-based motion and no “string jolt” behaviour now.
 - The string redraws only when the token moves, the board resizes, or another state change invalidates the canvas.
-
-If you *want* motion back one day, that’s a design change (not a tuning tweak).
 
 ## 6. Spinner & Recall Timing
 
