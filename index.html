@@ -823,6 +823,10 @@ function armSpinnerLanding(square, tNow) {
   if (spinActive) return;
 
   spinnerLanding = { square, revealAt: tNow + SPINNER_REVEAL_MS, revealed: false, iconPath: chooseSpinnerIcon() };
+
+  // Prevent "stepping over" the spinner square: while the landing is pending reveal,
+  // movement input is blocked via the existing step cooldown gate.
+  stepLockedUntil = Math.max(stepLockedUntil, spinnerLanding.revealAt);
 }
 
 function updateSpinnerLanding(t) {
