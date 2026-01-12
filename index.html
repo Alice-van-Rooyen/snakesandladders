@@ -487,6 +487,7 @@ function updateSubstitution(t) {
 
   if (playerSquare !== substitutionArmed.square) {
     substitutionArmed = null;
+    needsRender = true; // substitution ended/cleared
     return;
   }
 
@@ -499,6 +500,7 @@ function updateSubstitution(t) {
       activeSubText = txt;
     }
     substitutionArmed = null;
+    needsRender = true; // substitution ended/cleared
   }
 }
 
@@ -570,6 +572,7 @@ function updateWindowReveal(t) {
   if (t >= windowArmed.revealAt) {
     windowRevealed = windowArmed.square;
     windowArmed = null;
+    needsRender = true; // window reveal finished/cleared
   }
 }
 
@@ -822,6 +825,7 @@ function updateSpinnerLanding(t) {
 
   if (!spinnerLanding.revealed && t >= spinnerLanding.revealAt) {
     spinnerLanding.revealed = true;
+    needsRender = true; // reveal state changed
   }
 }
 
@@ -895,6 +899,7 @@ function updateSpin(t) {
   if (elapsed < spinDurationMs) return;
 
   spinActive = false;
+  needsRender = true; // state changed: ensure final jump frame renders
   const to = pendingJumpTo;
   pendingJumpTo = null;
 
