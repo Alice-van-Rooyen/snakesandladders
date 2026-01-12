@@ -149,6 +149,35 @@ function getImage(path) {
 }
 
 /* ===============================
+   RENDER LOOP CONTROL (battery/perf)
+   - render-on-demand via invalidate()
+=============================== */
+let needsRender = true;
+let rafId = null;
+
+function cancelRAF() {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
+
+function invalidate() {
+  needsRender = true;
+  if (document.hidden) return;
+  if (rafId === null) rafId = requestAnimationFrame(frame);
+}
+
+// Expensive derived text is memoised
+const scrambleCache = new Map();   // key: `${square}::${text}` -> scrambled string
+const richTextCache = new Map();   // key: `${kind}::${w}::${h}::${text}` -> layout object
+
+function clearTextCaches() {
+  scrambleCache.clear();
+  richTextCache.clear();
+}
+
+/* ===============================
    RESIZE
 =============================== */
 function resizeCanvas() {
@@ -160,6 +189,11 @@ function resizeCanvas() {
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = true; // SVGs look better with smoothing
+
+
+  // layout depends on pixel sizes
+  richTextCache.clear();
+  invalidate();
 }
 
 /* ===============================
@@ -257,6 +291,7 @@ async function loadText() {
   }
 
   squareData = out;
+  clearTextCaches();
 }
 
 async function loadPopups() {
@@ -396,6 +431,17 @@ function scrambleText(text, seed) {
     return ch;
   }).join("");
 }
+
+function getScrambledText(square, sourceText) {
+  // Memoised per (square, text). Cleared when JSON reloads or reveal toggles.
+  const key = `${square}::${sourceText}`;
+  const cached = scrambleCache.get(key);
+  if (cached !== undefined) return cached;
+  const out = scrambleText(sourceText, square);
+  scrambleCache.set(key, out);
+  return out;
+}
+
 
 /* ===============================
    POPUPS / SUBSTITUTION
@@ -610,6 +656,72 @@ function layoutRichText(text, maxWidth, fontSizePx) {
   return lines;
 }
 
+
+function measureLinesWithWidths(lines, fontSizePx) {
+  // Adds width to each token run and precomputes each line's width.
+  const out = [];
+  for (const item of lines) {
+    if (item.type === "gap") { out.push({ type: "gap" }); continue; }
+    const runs = item.runs.map(run => ({
+      text: run.text,
+      bold: run.bold,
+      isSpace: run.isSpace,
+      w: measureRunText(fontSizePx, run.bold, run.text)
+    }));
+    const lineW = runs.reduce((sum, r) => sum + r.w, 0);
+    out.push({ type: "line", runs, lineW });
+  }
+  return out;
+}
+
+function getRichTextFitCached(text, maxWidth, maxHeight, opts = {}) {
+  const {
+    kind = "cell",
+    startFont = 12,
+    minFont = 6,
+    padding = 6,
+    lineHMult = 1.10,
+    gapMult = 0.18
+  } = opts;
+
+  const wKey = Math.round(maxWidth);
+  const hKey = Math.round(maxHeight);
+  const key = `${kind}::${wKey}::${hKey}::${startFont}::${minFont}::${padding}::${lineHMult}::${gapMult}::${text}`;
+
+  const cached = richTextCache.get(key);
+  if (cached) return cached;
+
+  let chosen = null;
+
+  for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
+    const rawLines = layoutRichText(text, maxWidth, fontSize);
+
+    const lineH = Math.round(fontSize * lineHMult);
+    const gapH  = Math.round(lineH * gapMult);
+
+    const blockH = rawLines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+
+    if (blockH <= maxHeight - padding * 2) {
+      const lines = measureLinesWithWidths(rawLines, fontSize);
+      chosen = { fontSize, lines, lineH, gapH, blockH, padding };
+      break;
+    }
+  }
+
+  if (!chosen) {
+    const fontSize = minFont;
+    const rawLines = layoutRichText(text, maxWidth, fontSize);
+    const lineH = Math.round(fontSize * lineHMult);
+    const gapH  = Math.round(lineH * gapMult);
+    const blockH = rawLines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+    const lines = measureLinesWithWidths(rawLines, fontSize);
+    chosen = { fontSize, lines, lineH, gapH, blockH, padding };
+  }
+
+  richTextCache.set(key, chosen);
+  return chosen;
+}
+
 function drawRichText(text, r, alpha = 1) {
   if (!text) return;
 
@@ -622,40 +734,28 @@ function drawRichText(text, r, alpha = 1) {
   const padding = 6;
   const maxWidth = r.w - padding * 2;
 
-  let fontSize = 12;
-  while (fontSize >= 6) {
-    const lines = layoutRichText(text, maxWidth, fontSize);
+  const fit = getRichTextFitCached(text, maxWidth, r.h, {
+    kind: "cell",
+    startFont: 12,
+    minFont: 6,
+    padding,
+    lineHMult: 1.10,
+    gapMult: 0.18
+  });
 
-    const lineH = Math.round(fontSize * 1.10);
-    const gapH  = Math.round(lineH * 0.18);
-    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
+  let y = r.y + (r.h - fit.blockH) / 2;
+  const cx = r.x + r.w / 2;
 
-    if (blockH <= r.h - padding * 2) {
-      let y = r.y + (r.h - blockH) / 2;
-      const cx = r.x + r.w / 2;
+  for (const item of fit.lines) {
+    if (item.type === "gap") { y += fit.gapH; continue; }
 
-      for (const item of lines) {
-        if (item.type === "gap") { y += gapH; continue; }
-
-        let lineW = 0;
-        for (const run of item.runs) lineW += measureRunText(fontSize, run.bold, run.text);
-
-        let x = cx - lineW / 2;
-
-        for (const run of item.runs) {
-          setFont(fontSize, run.bold);
-          ctx.fillText(run.text, x, y);
-          x += ctx.measureText(run.text).width;
-        }
-
-        y += lineH;
-      }
-
-      ctx.restore();
-      return;
+    let x = cx - item.lineW / 2;
+    for (const run of item.runs) {
+      setFont(fit.fontSize, run.bold);
+      ctx.fillText(run.text, x, y);
+      x += run.w;
     }
-
-    fontSize--;
+    y += fit.lineH;
   }
 
   ctx.restore();
@@ -740,6 +840,8 @@ function triggerSpinnerJump(tNow) {
   inputLocked = true;
 
   spinnerLanding = null;
+
+  invalidate();
   return true;
 }
 
@@ -815,6 +917,8 @@ function beginReturnToHospital(tNow, setRecall) {
   inputLocked = true;
 
   stringJolt = Math.min(1.2, stringJolt + 0.55);
+
+  invalidate();
 }
 
 function hospitalPullMaybe(tNow) {
@@ -831,6 +935,8 @@ function goHome(tNow) {
   if (inputLocked) return;
   if (playerSquare === 1) return;
   beginReturnToHospital(tNow, true);
+
+  invalidate();
 }
 
 function canRecall(tNow) {
@@ -855,6 +961,8 @@ function attemptRecall(tNow) {
   maybeArmSubstitutionOnLanding(playerSquare, tNow);
   armWindowOnLanding(playerSquare, tNow);
   armSpinnerLanding(playerSquare, tNow);
+
+  invalidate();
 }
 
 /* ===============================
@@ -899,12 +1007,22 @@ function drawToken(t) {
 /* ===============================
    TETHER STRING
 =============================== */
+
 function drawTetherString(t) {
   const a = squareCornerAnchor(1, "br", PIN_PAD_FRAC);
   const b = tokenAnchor(t);
 
-  const wobbleAmp = (canvas.clientWidth / 10) * 0.07 * (0.25 + stringJolt);
-  const segs = 14;
+  // Pure static geometry: a gentle sag curve between anchor and token.
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+
+  // Sag scales with distance; tuned to feel like the previous "weighted" string.
+  const cell = canvas.clientWidth / 10;
+  const sag = cell * 0.07 * 0.25 + Math.min(cell * 0.22, len * 0.06);
+
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2 + sag;
 
   ctx.save();
   ctx.lineWidth = Math.max(1, canvas.clientWidth * 0.0026);
@@ -914,29 +1032,7 @@ function drawTetherString(t) {
 
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
-
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const len = Math.hypot(dx, dy) || 1;
-
-  const px = -dy / len;
-  const py = dx / len;
-
-  const baseFreq = 6 + Math.min(10, len / 120);
-  const phase = (t * 0.004) + (len * 0.002);
-
-  for (let i = 1; i <= segs; i++) {
-    const u = i / segs;
-    const ease = Math.sin(Math.PI * u);
-
-    const wx = px * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
-    const wy = py * Math.sin(phase + u * baseFreq) * wobbleAmp * ease;
-
-    const x = a.x + dx * u + wx;
-    const y = a.y + dy * u + wy;
-    ctx.lineTo(x, y);
-  }
-
+  ctx.quadraticCurveTo(mx, my, b.x, b.y);
   ctx.stroke();
 
   ctx.fillStyle = STRING_KNOT_COLOR;
@@ -947,6 +1043,7 @@ function drawTetherString(t) {
   ctx.restore();
 }
 
+
 /* ===============================
    HELP OVERLAY
 =============================== */
@@ -955,6 +1052,8 @@ function toggleHelp(open = !helpOpen) {
   if (helpOpen) {
     try { localStorage.setItem(HELP_SEEN_KEY, "1"); } catch {}
   }
+
+  invalidate();
 }
 
 function getHelpLines(tNow) {
@@ -1088,7 +1187,10 @@ function drawHelpOverlay(t) {
 =============================== */
 function toggleMagnifier(open = !magnifierOpen) {
   magnifierOpen = !!open;
+
+  invalidate();
 }
+
 
 function drawRichTextBox(text, box, opts = {}) {
   const { alpha = 1, startFont = 26, minFont = 12, padding = 14 } = opts;
@@ -1101,41 +1203,36 @@ function drawRichTextBox(text, box, opts = {}) {
   ctx.textBaseline = "top";
 
   const maxWidth = box.w - padding * 2;
+  const maxHeight = box.h;
 
-  let chosen = null;
-  for (let fontSize = startFont; fontSize >= minFont; fontSize--) {
-    const lines = layoutRichText(text, maxWidth, fontSize);
-    const lineH = Math.round(fontSize * 1.2);
-    const gapH  = Math.round(lineH * 0.45);
-    const blockH = lines.reduce((h, item) => h + (item.type === "gap" ? gapH : lineH), 0);
-    if (blockH <= box.h - padding * 2) { chosen = { fontSize, lines, lineH, gapH }; break; }
-  }
-  if (!chosen) {
-    const fontSize = minFont;
-    const lines = layoutRichText(text, maxWidth, fontSize);
-    chosen = { fontSize, lines, lineH: Math.round(fontSize * 1.2), gapH: Math.round(Math.round(fontSize * 1.2) * 0.45) };
-  }
-
-  const { fontSize, lines, lineH, gapH } = chosen;
+  const fit = getRichTextFitCached(text, maxWidth, maxHeight, {
+    kind: "box",
+    startFont,
+    minFont,
+    padding,
+    lineHMult: 1.2,
+    gapMult: 0.45
+  });
 
   ctx.beginPath();
   ctx.rect(box.x + padding, box.y + padding, box.w - 2 * padding, box.h - 2 * padding);
   ctx.clip();
 
   let y = box.y + padding;
-  for (const item of lines) {
-    if (item.type === "gap") { y += gapH; continue; }
+  for (const item of fit.lines) {
+    if (item.type === "gap") { y += fit.gapH; continue; }
     let x = box.x + padding;
     for (const run of item.runs) {
-      setFont(fontSize, run.bold);
+      setFont(fit.fontSize, run.bold);
       ctx.fillText(run.text, x, y);
-      x += ctx.measureText(run.text).width;
+      x += run.w;
     }
-    y += lineH;
+    y += fit.lineH;
   }
 
   ctx.restore();
 }
+
 
 function drawMagnifierOverlay(t) {
   if (!magnifierOpen) return;
@@ -1285,7 +1382,7 @@ function draw(t) {
 
     if (text && allowText) {
       // cipher restriction: if not visible, show scrambled version (no fog veil)
-      const displayText = (isVis || revealAll) ? text : scrambleText(text, n);
+      const displayText = (isVis || revealAll) ? text : getScrambledText(n, text);
       drawRichText(displayText, rect, 1);
     }
 
@@ -1355,6 +1452,8 @@ function attemptStep(delta, tNow) {
   armSpinnerLanding(playerSquare, tNow);
 
   hospitalPullMaybe(tNow);
+
+  invalidate();
 }
 
 
@@ -1376,9 +1475,14 @@ function pushCheatChar(ch, tNow) {
     revealAll = !revealAll;
     cheatFlashUntil = performance.now() + CHEAT_FLASH_MS;
     cheatBuffer = "";
+    // reveal mode changes visibility + cipher usage
+    scrambleCache.clear();
+    invalidate();
     return true;
   }
   return false;
+
+  invalidate();
 }
 
 document.addEventListener("keydown", (e) => {
@@ -1428,7 +1532,7 @@ document.addEventListener("keydown", (e) => {
   if (isEsc)  {
     if (helpOpen) { toggleHelp(false); return; }
     if (magnifierOpen) { toggleMagnifier(false); return; }
-    if (revealAll) { revealAll = false; return; }
+    if (revealAll) { revealAll = false; scrambleCache.clear(); invalidate(); return; }
     return;
   }
 
@@ -1446,23 +1550,49 @@ window.addEventListener("blur", () => {
   cheatLastT = 0;
 });
 
-/* ===============================
-   TICK / LOOP
-=============================== */
-let rafStarted = false;
-function tick(t) {
-  stringJolt *= 0.92;
-  if (stringJolt < 0.001) stringJolt = 0;
+// Pause rendering completely when tab/window is hidden.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    cancelRAF();
+  } else {
+    invalidate();
+  }
+});
 
+
+/* ===============================
+   TICK / LOOP (render-on-demand)
+=============================== */
+function isAnimating(t) {
+  return (
+    spinActive ||
+    (spinnerLanding && spinnerLanding.revealed === false) ||
+    !!windowArmed ||
+    !!substitutionArmed ||
+    (t < cheatFlashUntil)
+  );
+}
+
+function frame(t) {
+  // Clear first so invalidate() inside any handlers can schedule a new RAF safely.
+  rafId = null;
+
+  // Time-gated state updates
   updateWindowReveal(t);
   updateSpinnerLanding(t);
   updateSpin(t);
   updateSubstitution(t);
 
-  draw(t);
+  if (needsRender || isAnimating(t)) {
+    draw(t);
+    needsRender = false;
+  }
 
-  requestAnimationFrame(tick);
+  if (isAnimating(t)) {
+    rafId = requestAnimationFrame(frame);
+  }
 }
+
 
 /* ===============================
    START
@@ -1503,11 +1633,7 @@ async function start() {
   armSpinnerLanding(playerSquare, now);
 
   maybeOpenHelpOnFirstVisit();
-
-  if (!rafStarted) {
-    rafStarted = true;
-    requestAnimationFrame(tick);
-  }
+  invalidate();
 }
 
 // Start once: if the board loads, great; if it fails, also start; if it's already cached, start immediately.
